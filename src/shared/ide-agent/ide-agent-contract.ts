@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { SMART_PASTE_CONFIG } from '../smart-paste/smart-paste-config'
 
 export const IDE_EXECUTION_MODES = ['ask', 'plan', 'agent', 'review'] as const
 export const IDE_RIGHT_SIDEBAR_VIEWS = [
@@ -14,10 +15,28 @@ export const IdeExecutionModeSchema = z.enum(IDE_EXECUTION_MODES)
 
 export const IdeChatAttachmentSchema = z.strictObject({
   id: z.string().min(1).max(128),
-  kind: z.enum(['file', 'image', 'workspace-context']),
+  kind: z.enum([
+    'file',
+    'folder',
+    'symbol',
+    'selection',
+    'image',
+    'workspace-context',
+    'pasted_text'
+  ]),
   name: z.string().min(1).max(512),
   relativePath: z.string().max(4096).optional(),
+  symbolName: z.string().max(256).optional(),
   mimeType: z.string().max(128).optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  lineCount: z.number().int().nonnegative().optional(),
+  charCount: z.number().int().nonnegative().optional(),
+  format: z
+    .enum(['typescript', 'json', 'sql', 'markdown', 'yaml', 'diff', 'log', 'code', 'text'])
+    .optional(),
+  createdAt: z.number().nonnegative().optional(),
+  status: z.enum(['ready', 'missing', 'error']).optional(),
+  truncatedInPrompt: z.boolean().optional(),
   dataUrl: z
     .string()
     .max(8 * 1024 * 1024)
@@ -33,6 +52,30 @@ export const IdeChatAttachmentSchema = z.strictObject({
     })
     .optional(),
   sensitiveWarning: z.boolean().optional()
+})
+
+export const IdeAgentSavePastedAttachmentParams = z.strictObject({
+  conversationId: z.string().min(1).max(256),
+  attachmentId: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{4,128}$/)
+    .optional(),
+  displayName: z.string().min(1).max(256).optional(),
+  content: z.string().min(1).max(SMART_PASTE_CONFIG.maxAttachmentBytes),
+  mimeType: z.string().max(128).optional()
+})
+
+export const IdeAgentReadAttachmentContentParams = z.strictObject({
+  conversationId: z.string().min(1).max(256),
+  attachmentId: z.string().regex(/^[A-Za-z0-9_-]{4,128}$/),
+  startLine: z.number().int().min(1).optional(),
+  endLine: z.number().int().min(1).max(2_000_000).optional(),
+  maxChars: z
+    .number()
+    .int()
+    .min(256)
+    .max(512 * 1024)
+    .optional()
 })
 
 export const IdeAgentEmptyParams = z.strictObject({})

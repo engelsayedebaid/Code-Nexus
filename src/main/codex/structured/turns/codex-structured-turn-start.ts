@@ -31,6 +31,10 @@ import {
   type CodexTurnOpenWaits
 } from './codex-structured-turn-open-wait'
 import { codexDispatchRejection } from './codex-structured-turn-end-settlement'
+import {
+  hasStorePastedTextReference,
+  resolveAgentSessionBodyPastedText
+} from '../../../native-chat/agent-session-attachments/agent-session-text-attachment-dispatch'
 
 export type CodexTurnHost = {
   account?: AgentSessionAccountKind
@@ -80,11 +84,28 @@ export async function startCodexTurn(
     checkDispatchAuthority(host, input.clientMessageId, input.signal, input.isCurrent)
     throw error
   }
-  let steered = steerable(runningTurnId) ? await steerCodexTurn(host, runningTurnId, input) : null
+  let resolvedBody = input.body
+  if (hasStorePastedTextReference(input.body)) {
+    try {
+      resolvedBody = await resolveAgentSessionBodyPastedText(input.body, {
+        mode: 'inline',
+        inlineBudgetBytes: 64 * 1024,
+        signal: input.signal
+      })
+    } catch (error) {
+      host.dispatchEchoes.disarm(input.clientMessageId)
+      checkDispatchAuthority(host, input.clientMessageId, input.signal, input.isCurrent)
+      throw error
+    }
+  }
+  const resolvedInput = resolvedBody === input.body ? input : { ...input, body: resolvedBody }
+  let steered = steerable(runningTurnId)
+    ? await steerCodexTurn(host, runningTurnId, resolvedInput)
+    : null
   // Retry steering once if another turn opened during the refused request.
   const runningSince = steered ? undefined : [...(host.activeTurnIds ?? [])].at(-1)
   if (steerable(runningSince) && runningSince !== runningTurnId) {
-    steered = await steerCodexTurn(host, runningSince, input)
+    steered = await steerCodexTurn(host, runningSince, resolvedInput)
   }
   if (steered) {
     return steered
@@ -96,7 +117,7 @@ export async function startCodexTurn(
   let discardSettingsAttempt: (() => void) | undefined
   const enqueue = (
     permission: Parameters<Parameters<typeof admitCodexTurnPermission>[2]>[0],
-    body = input.body,
+    body = resolvedBody,
     mode = host.permissions?.acquiredMode
   ) => {
     checkDispatchAuthority(host, input.clientMessageId, input.signal, input.isCurrent)

@@ -55,7 +55,7 @@ async function localTarget(runtime: OrcaRuntimeService, worktree: string, agent:
   }
   const target = await resolveCouncilTargetWorktree(runtime, worktree)
   if (target.executionHostId !== LOCAL_EXECUTION_HOST_ID) {
-    throw new Error('Council text tasks on remote hosts require a newer Code Nexus runtime.')
+    throw new Error('Council text tasks on remote hosts require a newer Carver runtime.')
   }
   const prepared = await prepareLocalCommitMessageAgentEnv(
     agent,

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown } from 'lucide-react'
 import { AppIcon, type AppIconName } from '@/components/icons/app-icon'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import type {
@@ -55,6 +56,9 @@ export function IdeAiChatView({
   const createNewConversation = useIdeAgentStore((s) => s.createNewConversation)
   const setDraft = useIdeAgentStore((s) => s.setDraft)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const isNearBottomRef = useRef(true)
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
 
   const messages = conversation?.messages ?? []
   const lastMessageLength = messages.at(-1)?.text.length ?? 0
@@ -79,8 +83,39 @@ export function IdeAiChatView({
       conversation.status === 'verifying')
 
   useEffect(() => {
+    isNearBottomRef.current = true
+    setShowJumpToLatest(false)
     messagesEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [conversation?.id])
+
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ block: 'end' })
+      setShowJumpToLatest(false)
+      return
+    }
+    if (messages.length > 0) {
+      setShowJumpToLatest(true)
+    }
   }, [messages.length, lastMessageLength, pendingPermissions.length, latestActivitySeq])
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) {
+      return
+    }
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 72
+    isNearBottomRef.current = nearBottom
+    if (nearBottom) {
+      setShowJumpToLatest(false)
+    }
+  }, [])
+
+  const handleJumpToLatest = useCallback(() => {
+    isNearBottomRef.current = true
+    setShowJumpToLatest(false)
+    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+  }, [])
 
   const handleSuggestion = async (prompt: string) => {
     let target = conversation
@@ -94,68 +129,74 @@ export function IdeAiChatView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="scrollbar-sleek flex-1 overflow-y-auto px-4 py-4">
-        {!conversation || messages.length === 0 ? (
-          <div className="flex h-full min-h-52 flex-col items-center justify-center px-2 text-center">
-            <div className="flex size-10 items-center justify-center rounded-xl border border-border/70 bg-muted/40">
-              <AppIcon name="sparkles" size="lg" className="size-5 text-muted-foreground" />
-            </div>
-            <div className="mt-3 text-sm font-semibold text-foreground">
-              Code Nexus IDE Assistant
-            </div>
-            <p className="mt-1.5 max-w-72 text-[11.5px] leading-relaxed text-muted-foreground">
-              {isScratchWorkspace ? (
-                <>
-                  No folder is open, so Nexus works in a private scratch folder and can create files
-                  or folders when you ask.
-                </>
-              ) : (
-                <>
-                  Ask questions in <span className="font-medium text-foreground">Ask</span>, design
-                  changes in <span className="font-medium text-foreground">Plan</span>, approve
-                  edits in <span className="font-medium text-foreground">Agent</span>, or audit
-                  diffs in <span className="font-medium text-foreground">Review</span>.
-                </>
-              )}
-            </p>
-            {isScratchWorkspace && workspacePath ? (
-              <p className="mt-2 max-w-full truncate font-mono text-[10px] text-muted-foreground/70">
-                {workspacePath}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="scrollbar-sleek flex-1 overflow-y-auto px-3 py-3"
+        >
+          {!conversation || messages.length === 0 ? (
+            <div className="flex h-full min-h-52 flex-col items-center justify-center px-3 text-center">
+              <AppIcon name="sparkles" size="lg" className="size-6 text-muted-foreground/40" />
+              <div className="mt-3 text-sm font-medium text-foreground">Start a conversation</div>
+              <p className="mt-1.5 max-w-72 text-xs leading-relaxed text-muted-foreground">
+                {isScratchWorkspace ? (
+                  <>No folder is open. Carver will work in a private scratch folder.</>
+                ) : (
+                  <>Ask about the codebase, plan a change, or let the agent build it.</>
+                )}
               </p>
-            ) : null}
+              {isScratchWorkspace && workspacePath ? (
+                <p className="mt-2 max-w-full truncate font-mono text-3xs text-muted-foreground/70">
+                  {workspacePath}
+                </p>
+              ) : null}
 
-            <div className="mt-5 grid w-full max-w-80 grid-cols-1 gap-1.5">
-              {EMPTY_STATE_SUGGESTIONS.map((suggestion) => {
-                return (
-                  <button
-                    key={suggestion.label}
-                    type="button"
-                    onClick={() => void handleSuggestion(suggestion.prompt)}
-                    className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-left text-[11.5px] text-foreground/90 transition-colors hover:border-border hover:bg-accent/50"
-                  >
-                    <AppIcon name={suggestion.icon} size="xs" className="text-muted-foreground" />
-                    <span className="truncate">{suggestion.label}</span>
-                  </button>
-                )
-              })}
+              <div className="mt-5 grid w-full max-w-80 grid-cols-2 gap-1">
+                {EMPTY_STATE_SUGGESTIONS.map((suggestion) => {
+                  return (
+                    <button
+                      key={suggestion.label}
+                      type="button"
+                      onClick={() => void handleSuggestion(suggestion.prompt)}
+                      className="flex min-h-9 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <AppIcon name={suggestion.icon} size="xs" className="text-muted-foreground" />
+                      <span className="truncate">{suggestion.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
-            {messages.map((message) => (
-              <IdeChatMessageItem
-                key={message.id}
-                message={message}
-                conversation={conversation}
-                providers={providers}
-                plansById={plansById}
-                commandsById={commandsById}
-              />
-            ))}
-          </div>
-        )}
-        {conversation ? <IdeRunProgressCard conversation={conversation} /> : null}
-        <div ref={messagesEndRef} />
+          ) : (
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+              {messages.map((message) => (
+                <IdeChatMessageItem
+                  key={message.id}
+                  message={message}
+                  conversation={conversation}
+                  providers={providers}
+                  plansById={plansById}
+                  commandsById={commandsById}
+                />
+              ))}
+            </div>
+          )}
+          {conversation ? <IdeRunProgressCard conversation={conversation} /> : null}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {showJumpToLatest ? (
+          <button
+            type="button"
+            onClick={handleJumpToLatest}
+            data-testid="ide-chat-jump-to-latest"
+            className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/95 px-2.5 py-1 text-2xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
+          >
+            <ArrowDown className="size-3" />
+            <span>Jump to latest</span>
+          </button>
+        ) : null}
       </div>
 
       {conversation && pendingPermissions.length > 0 ? (

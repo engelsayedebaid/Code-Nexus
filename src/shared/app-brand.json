@@ -1,5 +1,5 @@
 {
-  "productName": "Code Nexus",
+  "productName": "Carver",
   "appId": "com.stablyai.orca.nexus",
   "exeName": "CodeNexus",
   "cliCommandName": "code-nexus",
@@ -8,5 +8,5 @@
   "userDataName": "Orca Nexus",
   "description": "AI-Powered Development Environment",
   "selfUpdate": "disabled",
-  "icon": "resources/build/icon-nexus.ico"
+  "icon": "resources/build/icon-carver.ico"
 }

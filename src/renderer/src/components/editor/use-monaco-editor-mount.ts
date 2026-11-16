@@ -14,6 +14,7 @@ import { clampMonacoAutoHeight } from './monaco-auto-height'
 import { installMonacoE2EProbe } from './monaco-e2e-probe'
 import { matchesPendingEditorFocusRequest } from './pending-editor-focus-request'
 import { installMonacoEditorInputBindings } from './monaco-editor-input-bindings'
+import { installIdeSelectionTracking } from '@/lib/ide-agent/ide-editor-selection'
 import type { MonacoEditorMountParams } from './monaco-editor-mount-params'
 import {
   installMonacoViewStateTracking,
@@ -200,7 +201,13 @@ export function useMonacoEditorMount(params: MonacoEditorMountParams): OnMount {
         }
       })
 
+      const ideSelectionSub = installIdeSelectionTracking(
+        editorInstance,
+        () => propsRef.current.relativePath
+      )
+
       editorInstance.onDidDispose(() => {
+        ideSelectionSub.dispose()
         cursorPositionSub.dispose()
         scrollStateSub.dispose()
         gutterMouseDownSub.dispose()

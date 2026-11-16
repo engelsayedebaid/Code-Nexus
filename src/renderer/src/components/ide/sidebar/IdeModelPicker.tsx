@@ -143,12 +143,14 @@ export function IdeModelPicker({
           {providerIcon(provider, 13)}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12px] leading-4 text-foreground">
-            {model.label}
-          </span>
-          <span className="block truncate text-[10px] leading-3.5 text-muted-foreground">
+          <span className="block truncate text-xs leading-4 text-foreground">{model.label}</span>
+          <span className="block truncate text-3xs leading-3.5 text-muted-foreground">
             {provider.label}
             {model.isDefault ? ' · Default' : ''}
+            {typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0
+              ? ` · ${Math.round(model.contextWindowTokens / 1000)}k`
+              : ''}
+            {provider.supportsStreaming === false ? ' · Buffered' : ''}
           </span>
         </span>
         {selected ? <Check className="size-3.5 shrink-0 text-foreground" /> : null}

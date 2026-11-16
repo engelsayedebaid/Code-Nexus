@@ -20,6 +20,10 @@ import {
 } from '../../../shared/agent-session/agent-session-attachments'
 import { agentInlineImageMimeType } from '../../../shared/agent-inline-image-types'
 import { claudeRecord } from './journal/claude-structured-item-translation'
+import {
+  hasStorePastedTextReference,
+  resolveAgentSessionBodyPastedText
+} from '../../native-chat/agent-session-attachments/agent-session-text-attachment-dispatch'
 
 export class ClaudeDispatchContentError extends Error {
   readonly failure: SubmissionRejectionFact
@@ -167,9 +171,12 @@ export async function claudeDispatchMessageContent(
     )
   }
   const images: unknown[] = []
+  const resolvedBody = hasStorePastedTextReference(body)
+    ? await resolveAgentSessionBodyPastedText(body, { mode: 'verify-path' })
+    : body
   const texts: string[] = []
   const imageBudget: ImageBudget = { count: 0, localBytes: 0 }
-  for (const block of body.blocks as NativeChatBlock[]) {
+  for (const block of resolvedBody.blocks as NativeChatBlock[]) {
     if (block.type === 'text' && block.text.length > 0) {
       texts.push(block.text)
     } else if (block.type === 'image-ref') {

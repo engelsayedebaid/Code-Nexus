@@ -57,7 +57,14 @@ export function formatPlanAsMarkdown(plan: IdeTaskPlan): string {
         risks: 'تقييم المخاطر',
         complexity: 'تعقيد التنفيذ المتوقع',
         none: 'لا توجد مخاطر محددة',
-        actions: { create: 'إنشاء', modify: 'تعديل', delete: 'حذف' } as const,
+        actions: {
+          create: 'إنشاء',
+          modify: 'تعديل',
+          delete: 'حذف',
+          mkdir: 'إنشاء مجلد',
+          rename: 'نقل/إعادة تسمية',
+          delete_folder: 'حذف مجلد'
+        } as const,
         complexityValues: { low: 'منخفض', medium: 'متوسط', high: 'مرتفع' } as const
       }
     : {
@@ -68,7 +75,14 @@ export function formatPlanAsMarkdown(plan: IdeTaskPlan): string {
         risks: 'Risk assessment',
         complexity: 'Estimated execution complexity',
         none: 'None flagged',
-        actions: { create: 'Create', modify: 'Modify', delete: 'Delete' } as const,
+        actions: {
+          create: 'Create',
+          modify: 'Modify',
+          delete: 'Delete',
+          mkdir: 'Create folder',
+          rename: 'Move/Rename',
+          delete_folder: 'Delete folder'
+        } as const,
         complexityValues: { low: 'Low', medium: 'Medium', high: 'High' } as const
       }
   const filesSection = plan.affectedFiles
@@ -94,4 +108,3 @@ export function formatPlanAsMarkdown(plan: IdeTaskPlan): string {
     .filter(Boolean)
     .join('\n\n')
 }
-

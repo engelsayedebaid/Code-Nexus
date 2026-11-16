@@ -56,7 +56,7 @@ export async function presentRendererRecoveryPrompt(
       defaultId: 0,
       // Escape retries instead of destroying the session.
       cancelId: 0,
-      title: translateMain('rendererRecovery.title', 'Code Nexus keeps failing to load'),
+      title: translateMain('rendererRecovery.title', 'Carver keeps failing to load'),
       ...content
     })
     if (response === 1 && diagnosis) {

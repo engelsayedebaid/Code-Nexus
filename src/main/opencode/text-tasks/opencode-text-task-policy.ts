@@ -129,7 +129,7 @@ export async function prepareOpenCodeTextTaskPolicy(
     actualSubtask,
     policy,
     createBody: {
-      title: input.title || `Code Nexus text generation ${randomUUID()}`,
+      title: input.title || `Carver text generation ${randomUUID()}`,
       ...(agent ? { agent } : {}),
       ...(v2 && input.model
         ? {

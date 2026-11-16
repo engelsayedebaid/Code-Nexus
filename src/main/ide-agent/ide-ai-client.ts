@@ -23,6 +23,30 @@ import {
 } from '../text-generation/source-control-generation-lanes'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { wslDistroForCommand } from '../../shared/wsl-paths'
+import { parseOpenCodeGenerationOutput } from '../../shared/opencode-generation-output'
+import { parseKimiGenerationOutput } from '../../shared/kimi-generation-output'
+
+const STREAMING_JSONL_AGENTS = new Set(['opencode', 'kimi'])
+const NON_STREAMING_CLI_AGENTS = new Set(['antigravity'])
+
+function decodePartialAgentStdout(agentId: string, stdout: string): string | null {
+  if (NON_STREAMING_CLI_AGENTS.has(agentId)) {
+    return null
+  }
+  if (!STREAMING_JSONL_AGENTS.has(agentId)) {
+    return stdout
+  }
+  const lastNewline = stdout.lastIndexOf('\n')
+  if (lastNewline === -1) {
+    return null
+  }
+  const completeLines = stdout.slice(0, lastNewline + 1)
+  const parsed =
+    agentId === 'opencode'
+      ? parseOpenCodeGenerationOutput(completeLines)
+      : parseKimiGenerationOutput(completeLines)
+  return parsed.ok ? parsed.text : null
+}
 
 export type IdeAiCompletionRequest = {
   workspacePath: string
@@ -44,13 +68,17 @@ export type IdeAiClient = {
 }
 
 function mapModels(
-  models: readonly Pick<CommitMessageModel, 'id' | 'label'>[],
+  models: readonly Pick<CommitMessageModel, 'id' | 'label' | 'contextWindowTokens'>[],
   defaultId: string
 ): IdeProviderModelOption[] {
   return models.map((model) => ({
     id: model.id,
     label: model.label,
-    isDefault: model.id === defaultId
+    isDefault: model.id === defaultId,
+    supportsStreaming: true,
+    ...(typeof model.contextWindowTokens === 'number' && model.contextWindowTokens > 0
+      ? { contextWindowTokens: model.contextWindowTokens }
+      : {})
   }))
 }
 
@@ -84,10 +112,9 @@ export class RuntimeIdeAiClient implements IdeAiClient {
         runtime: wslDistro ? 'wsl' : 'host',
         ...(wslDistro ? { wslDistro } : {})
       })
-      const pathEnv =
-        prepared.ok
-          ? (prepared.env?.PATH ?? prepared.env?.Path ?? process.env.PATH ?? process.env.Path)
-          : null
+      const pathEnv = prepared.ok
+        ? (prepared.env?.PATH ?? prepared.env?.Path ?? process.env.PATH ?? process.env.Path)
+        : null
       const resolvedBinary = prepared.ok
         ? resolveExecutableCommand(override || spec.binary, { pathEnv })
         : null
@@ -113,6 +140,8 @@ export class RuntimeIdeAiClient implements IdeAiClient {
         available,
         defaultModelId: capability.defaultModelId,
         models,
+        supportsStreaming: !NON_STREAMING_CLI_AGENTS.has(spec.id),
+        supportsToolLoop: true,
         ...(available
           ? {}
           : { unavailableReason: `${spec.label} CLI (${spec.binary}) not detected on PATH.` })
@@ -127,7 +156,10 @@ export class RuntimeIdeAiClient implements IdeAiClient {
     }
     const spec = getCommitMessageAgentSpec(request.agentId as TuiAgent)
     if (!spec) {
-      return { ok: false, error: `Agent "${request.agentId}" does not support text/code generation.` }
+      return {
+        ok: false,
+        error: `Agent "${request.agentId}" does not support text/code generation.`
+      }
     }
     const settings = this.runtime.requireStore().getSettings()
     const resolvers = this.runtime.getCommitMessageAgentEnvironmentResolvers()
@@ -142,13 +174,14 @@ export class RuntimeIdeAiClient implements IdeAiClient {
 
     const operationId = randomUUID()
     const laneKey = localGenerationLaneKey('council', request.workspacePath, operationId)
-    let emittedLength = 0
+    let emittedText = ''
     const onStdout = (stdout: string): void => {
-      if (stdout.length <= emittedLength) {
+      const decoded = decodePartialAgentStdout(spec.id, stdout)
+      if (!decoded || decoded.length <= emittedText.length || !decoded.startsWith(emittedText)) {
         return
       }
-      const delta = stdout.slice(emittedLength)
-      emittedLength = stdout.length
+      const delta = decoded.slice(emittedText.length)
+      emittedText = decoded
       request.onDelta?.(delta)
     }
 
@@ -198,8 +231,8 @@ export class RuntimeIdeAiClient implements IdeAiClient {
       if (!finalText) {
         return { ok: false, error: 'The model returned an empty response.' }
       }
-      if (finalText.length > emittedLength) {
-        request.onDelta?.(finalText.slice(emittedLength))
+      if (finalText.length > emittedText.length && finalText.startsWith(emittedText)) {
+        request.onDelta?.(finalText.slice(emittedText.length))
       }
       return { ok: true, text: finalText }
     } finally {

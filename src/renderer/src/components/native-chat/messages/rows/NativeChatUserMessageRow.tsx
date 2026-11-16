@@ -1,5 +1,6 @@
 import { NativeChatSetupButton } from '../../host-access/NativeChatSetupButton'
 import { NativeChatTextAttachments } from '../../media/text/NativeChatTextAttachments'
+import { extractNativeChatVisibleAttachments } from '../../../../../../shared/smart-paste/native-chat-attachment-metadata'
 import { Goal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/class-names'
@@ -129,7 +130,11 @@ export function NativeChatUserMessageRow({
               />
               <NativeChatUserMessageFold
                 messageId={message.id}
-                markdown={markdown}
+                markdown={
+                  structuredAttachments
+                    ? extractNativeChatVisibleAttachments(markdown, true).visibleText
+                    : markdown
+                }
                 onRefolded={onRefolded}
                 // List numbers hang into the bubble's padding; clipping at the text edge cut them off.
                 className="-mx-3.5 px-3.5"
@@ -168,7 +173,11 @@ export function NativeChatUserMessageRow({
       ) : null}
       {!from ? (
         <UserMessageMeta
-          markdown={markdown}
+          markdown={
+            structuredAttachments
+              ? extractNativeChatVisibleAttachments(markdown, true).visibleText
+              : markdown
+          }
           timestamp={message.timestamp}
           sending={sending}
           directionOverride={directionOverride}

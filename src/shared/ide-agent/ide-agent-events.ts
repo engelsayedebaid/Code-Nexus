@@ -3,6 +3,7 @@ import type {
   IdeChatMessage,
   IdeCommandExecutionRecord,
   IdeConversation,
+  IdeLiveEditSpeed,
   IdePermissionRequest,
   IdeRunStatus,
   IdeTaskPlan
@@ -12,6 +13,8 @@ export type IdeProviderModelOption = {
   id: string
   label: string
   isDefault?: boolean
+  contextWindowTokens?: number
+  supportsStreaming?: boolean
 }
 
 export type IdeProviderAgentOption = {
@@ -21,14 +24,30 @@ export type IdeProviderAgentOption = {
   available: boolean
   defaultModelId: string
   models: IdeProviderModelOption[]
+  supportsStreaming?: boolean
+  supportsToolLoop?: boolean
   unavailableReason?: string
+}
+
+export type IdeContextBudgetSummary = {
+  usedChars: number
+  estimatedTokens: number
+  budgetTokens: number
+  isEstimate: boolean
+  loadedFiles: number
+  deduplicatedReads: number
+  stackLabels?: string[]
 }
 
 export type IdeEditorHighlightTarget = {
   relativePath: string
   startLine: number
   endLine: number
+  cursorLine?: number
+  cursorColumn?: number
   label: string
+  status?: 'streaming' | 'revealing' | 'committed'
+  progressPercent?: number
   updatedAt: number
 }
 
@@ -56,11 +75,22 @@ export type IdeAgentStreamEvent =
       chunkIndex: number
       totalChunks: number
       label: string
+      beforeContent?: string | null
+      afterContent?: string
+      speed?: IdeLiveEditSpeed
+      sourceKind?: 'streamed' | 'patch_preview'
     }
   | {
-      type: 'file_created' | 'file_modified' | 'file_deleted'
+      type: 'file_created' | 'file_modified' | 'file_deleted' | 'folder_created' | 'folder_deleted'
       conversationId: string
       runId: string
+      relativePath: string
+    }
+  | {
+      type: 'file_renamed'
+      conversationId: string
+      runId: string
+      fromRelativePath: string
       relativePath: string
     }
   | {
@@ -82,4 +112,3 @@ export type IdeAgentStreamEvent =
       status: IdeRunStatus
       detail?: string
     }
-

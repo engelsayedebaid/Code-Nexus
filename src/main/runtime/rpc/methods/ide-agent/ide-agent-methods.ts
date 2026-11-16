@@ -8,8 +8,10 @@ import {
   IdeAgentPermissionDecisionParams,
   IdeAgentPlanDecisionParams,
   IdeAgentProvidersParams,
+  IdeAgentReadAttachmentContentParams,
   IdeAgentRunCommandParams,
   IdeAgentRunControlParams,
+  IdeAgentSavePastedAttachmentParams,
   IdeAgentSendPromptParams,
   IdeAgentSubscribeEventsParams,
   IdeAgentTodosListParams,
@@ -137,6 +139,20 @@ export const IDE_AGENT_METHODS = [
     handler: async (params, ctx) => ({
       items: getIdeAgentEngine(ctx.runtime).saveTodos(params.workspaceKey, params.items)
     })
+  }),
+  defineMethod({
+    name: 'ideAgent.savePastedAttachment',
+    permission: 'workspace',
+    params: IdeAgentSavePastedAttachmentParams,
+    handler: async (params, ctx) => ({
+      attachment: await getIdeAgentEngine(ctx.runtime).savePastedAttachment(params)
+    })
+  }),
+  defineMethod({
+    name: 'ideAgent.readAttachmentContent',
+    permission: 'workspace',
+    params: IdeAgentReadAttachmentContentParams,
+    handler: async (params, ctx) => getIdeAgentEngine(ctx.runtime).readAttachmentContent(params)
   }),
   defineStreamingMethod({
     name: 'ideAgent.subscribeEvents',

@@ -9,6 +9,7 @@ import {
   getIdeChatCopy,
   getIdeRunStageLabel
 } from './ide-chat-copy'
+import { IdeToolActivityTimeline } from './IdeToolActivityTimeline'
 
 const ACTIVE_STATUSES = new Set<IdeRunStatus>([
   'analyzing',
@@ -68,7 +69,15 @@ export function IdeRunProgressCard({
   const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
   const paused = conversation.status === 'paused'
 
+  const runActivity = conversation.activeRunId
+    ? conversation.activity.filter((ev) => ev.runId === conversation.activeRunId)
+    : []
+  const latestMeaningfulEvent = runActivity
+    .toReversed()
+    .find((ev) => ev.type !== 'editor.edit_chunk')
+
   const stageDetail =
+    latestMeaningfulEvent?.summary ??
     activeStep?.title ??
     (isAnsweringTurn
       ? copy.answeringDetail
@@ -128,6 +137,17 @@ export function IdeRunProgressCard({
                 )}
                 {paused ? copy.resumeHint : copy.autoContinueHint}
               </span>
+            </div>
+          ) : null}
+
+          {runActivity.length > 0 ? (
+            <div className="mt-2.5">
+              <IdeToolActivityTimeline
+                events={runActivity}
+                maxItems={5}
+                isArabic={arabic}
+                compact
+              />
             </div>
           ) : null}
         </div>

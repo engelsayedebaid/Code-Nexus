@@ -52,20 +52,20 @@ function ActivityButton({
         <button
           type="button"
           className={cn(
-            'relative flex size-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground',
-            active && 'text-foreground'
+            'relative flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            active && 'bg-accent/70 text-foreground'
           )}
           aria-label={label}
           aria-pressed={active}
           onClick={onClick}
         >
           {active ? (
-            <span className="absolute inset-y-1 left-0 w-0.5 rounded-r bg-foreground" />
+            <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-foreground" />
           ) : null}
           {children}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" sideOffset={4}>
+      <TooltipContent side="bottom" sideOffset={4}>
         {label}
       </TooltipContent>
     </Tooltip>
@@ -107,10 +107,10 @@ export function IdeDevelopmentSidebar(): React.JSX.Element {
   return (
     <aside
       ref={containerRef}
-      className="relative flex min-h-0 shrink-0 border-r border-border bg-background"
+      className="relative flex min-h-0 shrink-0 flex-col border-r border-border bg-background"
       aria-label={t('ide.developmentTools', 'Development tools')}
     >
-      <nav className="flex w-10 shrink-0 flex-col border-r border-border/70 bg-card/40 pt-1">
+      <nav className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border/70 bg-card/40 px-2">
         <ActivityButton
           active={view === 'files'}
           label={t('ide.explorer', 'Explorer')}
@@ -132,44 +132,28 @@ export function IdeDevelopmentSidebar(): React.JSX.Element {
         >
           <GitBranch className="size-4" />
         </ActivityButton>
+        <ActivityButton
+          active={view === 'extensions'}
+          label={t('ide.extensions', 'Extensions')}
+          onClick={() => selectView('extensions')}
+        >
+          <Blocks className="size-4" />
+        </ActivityButton>
         <DropdownMenu open={extensionsMenuOpen} onOpenChange={setExtensionsMenuOpen}>
-          <div className="relative flex items-center justify-center">
-            <DropdownMenuTrigger asChild>
-              <span aria-hidden className="pointer-events-none absolute inset-0" />
-            </DropdownMenuTrigger>
-            <ActivityButton
-              active={view === 'extensions' || extensionsMenuOpen}
-              label={t('ide.extensions', 'Extensions')}
-              onClick={() => setExtensionsMenuOpen((open) => !open)}
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={t('ide.moreViews', 'More views')}
             >
-              <Blocks className="size-4" />
-            </ActivityButton>
-          </div>
-          <DropdownMenuContent side="right" align="end" className="w-60">
-            <DropdownMenuLabel>
-              {t('ide.extensionsChooseMode', 'Extensions View')}
-            </DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => selectView('extensions')}>
-              <Blocks className="size-3.5" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-foreground">
-                  {t('ide.extensionsOpenPanel', 'Extensions Panel (Open VSX)')}
-                </div>
-                <div className="text-3xs text-muted-foreground">
-                  {t('ide.extensionsOpenPanelDesc', 'Browse and install marketplace .vsix')}
-                </div>
-              </div>
-            </DropdownMenuItem>
+              <MoreHorizontal className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>{t('ide.moreViews', 'More views')}</DropdownMenuLabel>
             <DropdownMenuItem onClick={openPluginsSettings}>
               <SlidersHorizontal className="size-3.5" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-foreground">
-                  {t('ide.extensionsCurrentSettings', 'Plugins Settings (Current Mode)')}
-                </div>
-                <div className="text-3xs text-muted-foreground">
-                  {t('ide.extensionsCurrentSettingsDesc', 'Manage Orca plugins and permissions')}
-                </div>
-              </div>
+              {t('ide.extensionsCurrentSettings', 'Plugins Settings')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

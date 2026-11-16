@@ -9,6 +9,10 @@ import { turnInputFor } from './codex-structured-message-options'
 import { readCodexTurnId } from '../../app-server/codex-structured-thread-facts'
 import { isCodexAppServerRequestError } from '../../app-server/codex-app-server-request-error'
 import { isCodexAppServerUnsupportedError } from '../../app-server/codex-app-server-session'
+import {
+  hasStorePastedTextReference,
+  resolveAgentSessionBodyPastedText
+} from '../../../native-chat/agent-session-attachments/agent-session-text-attachment-dispatch'
 
 /** Explicit steering avoids pre-0.148 turn/start replies naming nonexistent turns; overrides wait for a start. */
 export async function steerCodexTurn(
@@ -26,6 +30,13 @@ export async function steerCodexTurn(
 ): Promise<{ turnId: string; via: 'steer' } | null> {
   try {
     checkDispatchAuthority(host, input.clientMessageId, input.signal, input.isCurrent)
+    const body = hasStorePastedTextReference(input.body)
+      ? await resolveAgentSessionBodyPastedText(input.body, {
+          mode: 'inline',
+          inlineBudgetBytes: 64 * 1024,
+          signal: input.signal
+        })
+      : input.body
     const enqueue = (mode: Parameters<Parameters<StructuredAgentSessionAdmitFreshInput>[0]>[0]) => {
       const state = host.permissions
       if (state && mode !== (state.appliedMode ?? state.acquiredMode)) {
@@ -36,7 +47,7 @@ export async function steerCodexTurn(
         input.clientMessageId,
         host.threadId,
         'steer',
-        turnInputFor(host, input.body),
+        turnInputFor(host, body),
         expectedTurnId
       )
       return {
@@ -47,7 +58,7 @@ export async function steerCodexTurn(
             threadId: host.threadId,
             expectedTurnId,
             clientUserMessageId: input.clientMessageId,
-            input: turnInputFor(host, input.body)
+            input: turnInputFor(host, body)
           },
           { timeoutMs: input.timeoutMs, onReply: input.onReply }
         )

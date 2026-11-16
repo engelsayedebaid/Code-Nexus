@@ -12,7 +12,7 @@ function clip(value: string, limit = MAX_MESSAGE_CONTEXT): string {
   if (value.length <= limit) {
     return value
   }
-  return `${value.slice(0, limit)}\n\n[truncated by Code Nexus]`
+  return `${value.slice(0, limit)}\n\n[truncated by Carver]`
 }
 
 function transcript(
@@ -100,7 +100,7 @@ export function buildCouncilTurnPrompt(input: {
         : mode === 'code-review'
           ? 'Give a focused, honest review from your lens. Cite only real verified details and skip fluff.'
           : 'Share your opening take directly and naturally like an experienced colleague in a group conversation: give your clearest recommendation, concrete reasoning, and main caveat or trade-off without stiff essay templates.'
-    return `You are ${participant.label} (${participant.modelLabel})${mode === 'code-review' ? `, serving as ${participant.role}` : ''} in a Code Nexus multi-model chat.
+    return `You are ${participant.label} (${participant.modelLabel})${mode === 'code-review' ? `, serving as ${participant.role}` : ''} in a Carver multi-model chat.
 
 ${styleLine}
 ${languageRule}
@@ -115,7 +115,7 @@ ${clip(originalPrompt, 32_000)}${earlierContext}${threadHistory ? `\n\nConversat
   const replyLead = replyToLabel
     ? `You are responding right after ${replyToLabel}. Engage directly with their message and the thread below`
     : 'Engage directly with the conversation below'
-  return `You are ${participant.label} (${participant.modelLabel})${mode === 'code-review' ? `, serving as ${participant.role}` : ''} in round ${round} of a live Code Nexus group discussion.
+  return `You are ${participant.label} (${participant.modelLabel})${mode === 'code-review' ? `, serving as ${participant.role}` : ''} in round ${round} of a live Carver group discussion.
 
 ${replyLead} as a sharp colleague in a real conversation—not a standalone essay:
 - Address the user's latest prompt directly while engaging peers by name where helpful: state briefly where you agree and why, push back with specific reasoning or edge cases where you disagree, and update or concede your earlier point if someone raised a better one.
@@ -139,7 +139,7 @@ export function buildCouncilDecisionPrompt(input: {
   messages: readonly CouncilMessage[]
   contextNote?: string
 }): string {
-  return `You are the moderator producing the final Code Nexus group synthesis. Summarize the public transcript truthfully: never fabricate agreement where participants disagreed, and never claim that consensus guarantees correctness. Do not reveal hidden chain-of-thought. Keep verified evidence separate from inference. Write the explanations in the same language as the original request while keeping the exact section headings below.
+  return `You are the moderator producing the final Carver group synthesis. Summarize the public transcript truthfully: never fabricate agreement where participants disagreed, and never claim that consensus guarantees correctness. Do not reveal hidden chain-of-thought. Keep verified evidence separate from inference. Write the explanations in the same language as the original request while keeping the exact section headings below.
 
 Original request:
 ${clip(input.originalPrompt, 24_000)}

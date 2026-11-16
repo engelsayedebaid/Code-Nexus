@@ -1,7 +1,7 @@
 /** Keep bundle-keyed coordination outside the macOS app being replaced so desktop installs can park supervised serve processes. */
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { APP_BRAND_NAME } from './app-brand'
+import { APP_BRAND_USER_DATA_NAME } from './app-brand'
 
 /** launchd label prefix `orca serve service install` writes; only those supervisors register. */
 export const SERVE_LAUNCHD_LABEL_PREFIX = 'com.stablyai.orca.serve'
@@ -41,7 +41,7 @@ export type ServeParkRecord = {
 
 /** Electron's default macOS userData base, shared by every profile of one user. */
 export function macCoordinationRoot(homeDir: string): string {
-  return join(homeDir, 'Library', 'Application Support', APP_BRAND_NAME)
+  return join(homeDir, 'Library', 'Application Support', APP_BRAND_USER_DATA_NAME)
 }
 
 export function bundleCoordinationDir(realBundlePath: string, macUserDataRoot: string): string {

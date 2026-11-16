@@ -121,6 +121,7 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
   const pendingChangesCount = (activeConversation?.fileChanges ?? []).filter(
     (c) => c.acceptedState === 'pending'
   ).length
+  const activeSidebarView = IDE_SIDEBAR_VIEWS.find((view) => view.id === ideSidebarView)
 
   const handleSyncTodoFromPlan = () => {
     if (!effectiveWorkspace || !activeConversation?.activePlanId) {
@@ -153,10 +154,14 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="flex h-[38px] min-h-[38px] items-center justify-between border-b border-border/70 px-1.5 right-sidebar-header-inset right-sidebar-header-drag">
+      <div className="flex h-11 min-h-11 items-center gap-2 border-b border-border/70 px-2 right-sidebar-header-inset right-sidebar-header-drag">
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-xs font-medium text-foreground">
+          <AppIcon name={activeSidebarView?.icon ?? 'messages'} className="size-3.5 shrink-0" />
+          <span className="truncate">{activeSidebarView?.label ?? 'AI Chat'}</span>
+        </div>
         <div
           className={cn(
-            'scrollbar-sleek flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto',
+            'flex shrink-0 items-center gap-0.5',
             RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME
           )}
           role="tablist"
@@ -183,11 +188,14 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
                     className={cn(
                       'relative inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors',
                       active
-                        ? 'bg-accent text-foreground'
+                        ? 'text-foreground'
                         : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
                     )}
                   >
                     <AppIcon name={view.icon} />
+                    {active ? (
+                      <span className="absolute inset-x-1 bottom-[-9px] h-0.5 rounded-t bg-foreground" />
+                    ) : null}
                     {badgeCount > 0 ? (
                       <span className="absolute -right-1 -top-1 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[8.5px] font-semibold leading-none text-white">
                         {badgeCount}

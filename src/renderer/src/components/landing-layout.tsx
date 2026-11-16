@@ -1,6 +1,6 @@
 import { ShortcutKeyCombo } from './ShortcutKeyCombo'
 import type { ShortcutKeyComboDetails } from '@/hooks/useShortcutLabel'
-import logo from '../../../../resources/logo.svg'
+import logo from '../../../../resources/carver-logo.png'
 import { useTranslate } from '@/i18n/use-translate'
 
 export type LandingShortcutItem = {
@@ -16,18 +16,13 @@ export function LandingBrand(): React.JSX.Element {
   const t = useTranslate()
   return (
     <>
-      <div
-        className="flex items-center justify-center size-20 rounded-2xl border border-border/80 shadow-lg shadow-black/40"
-        style={{ backgroundColor: '#12181e' }}
-      >
-        <img
-          src={logo}
-          alt={t('auto.components.Landing.520304a067', 'Orca logo')}
-          className="size-12"
-        />
-      </div>
+      <img
+        src={logo}
+        alt={t('brand.carverLogo', 'Carver logo')}
+        className="size-20 object-contain"
+      />
       <h1 className="text-4xl font-bold text-foreground tracking-tight">
-        {t('auto.components.Landing.6ca6ff404e', 'ORCA')}
+        {t('brand.carver', 'Carver')}
       </h1>
     </>
   )

@@ -7,12 +7,14 @@ import {
 import { selectWorktreesByRepo } from '@/store/workspaces/catalog/workspace-record-fields'
 import { detectLanguage } from '../../../../shared/editor-language/editor-language-detect'
 import { getFolderWorkspaceWorktree } from '../../../../shared/folder-workspaces/folder-workspace-worktree'
-import {
-  LOCAL_EXECUTION_HOST_ID,
-  parseExecutionHostId
-} from '../../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../../shared/execution-host'
 import type { IdeAgentStreamEvent } from '../../../../shared/ide-agent/ide-agent-types'
 import { normalizeWorkspaceRelativePath } from '../../../../shared/ide-agent/ide-plan-policy'
+import {
+  enqueueLiveCharacterCoding,
+  hasActiveLiveCharacterCoding,
+  stopAllLiveCharacterCoding
+} from './ide-live-character-coder'
 
 export type ResolvedActiveIdeWorkspace = {
   worktreeId: string
@@ -90,11 +92,7 @@ function isUserTypingOutsideEditor(): boolean {
   if (!active || !(active instanceof HTMLElement)) {
     return false
   }
-  if (
-    active.tagName === 'TEXTAREA' ||
-    active.tagName === 'INPUT' ||
-    active.isContentEditable
-  ) {
+  if (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable) {
     return true
   }
   // Also preserve focus if user is actively inside a Monaco editor widget.
@@ -142,7 +140,8 @@ function openFileInIdeIfAllowed(relativePath: string, workspace: ResolvedActiveI
 function dispatchWorktreeFsEvent(
   kind: 'create' | 'update' | 'delete',
   relativePath: string,
-  workspace: ResolvedActiveIdeWorkspace
+  workspace: ResolvedActiveIdeWorkspace,
+  skipEditorReloadIfAnimating = false
 ): void {
   const fullPath = joinWorkspacePath(workspace.workspacePath, relativePath)
   if (typeof window !== 'undefined') {
@@ -157,6 +156,12 @@ function dispatchWorktreeFsEvent(
         }
       })
     )
+  }
+  if (
+    skipEditorReloadIfAnimating &&
+    hasActiveLiveCharacterCoding(workspace.worktreeId, relativePath)
+  ) {
+    return
   }
   notifyEditorExternalFileChange({
     relativePath: normalizeWorkspaceRelativePath(relativePath),
@@ -174,6 +179,7 @@ export function syncIdeAgentEventToWorkspace(event: IdeAgentStreamEvent): void {
       event.type === 'run_status' &&
       (event.status === 'completed' || event.status === 'failed' || event.status === 'canceled')
     ) {
+      stopAllLiveCharacterCoding({ cancelled: event.status === 'canceled' })
       ui.setIdeActiveEditHighlight(null)
     }
     return
@@ -186,40 +192,54 @@ export function syncIdeAgentEventToWorkspace(event: IdeAgentStreamEvent): void {
 
     case 'editor_edit_chunk':
       openFileInIdeIfAllowed(event.relativePath, workspace)
-      ui.setIdeActiveEditHighlight({
-        relativePath: normalizeWorkspaceRelativePath(event.relativePath),
+      enqueueLiveCharacterCoding({
+        worktreeId: workspace.worktreeId,
+        worktreePath: workspace.workspacePath,
+        relativePath: event.relativePath,
+        beforeContent: event.beforeContent,
+        afterContent: event.afterContent,
         startLine: event.startLine,
         endLine: event.endLine,
         label: event.label,
-        updatedAt: Date.now()
+        speed: event.speed,
+        sourceKind: event.sourceKind
       })
-      notifyEditorExternalFileChange({
-        relativePath: normalizeWorkspaceRelativePath(event.relativePath),
-        worktreeId: workspace.worktreeId,
-        worktreePath: workspace.workspacePath
-      })
+      return
+
+    case 'folder_created':
+      dispatchWorktreeFsEvent('create', event.relativePath, workspace, true)
       return
 
     case 'file_created':
-      dispatchWorktreeFsEvent('create', event.relativePath, workspace)
+      dispatchWorktreeFsEvent('create', event.relativePath, workspace, true)
       return
 
     case 'file_modified':
-      dispatchWorktreeFsEvent('update', event.relativePath, workspace)
+      dispatchWorktreeFsEvent('update', event.relativePath, workspace, true)
       return
 
     case 'file_deleted':
-      dispatchWorktreeFsEvent('delete', event.relativePath, workspace)
+    case 'folder_deleted':
+      dispatchWorktreeFsEvent('delete', event.relativePath, workspace, false)
+      return
+
+    case 'file_renamed':
+      dispatchWorktreeFsEvent('delete', event.fromRelativePath, workspace, false)
+      dispatchWorktreeFsEvent('create', event.relativePath, workspace, false)
       return
 
     case 'run_status':
-      if (
+      if (event.status === 'canceled') {
+        stopAllLiveCharacterCoding({ cancelled: true })
+        ui.setIdeActiveEditHighlight(null)
+      } else if (
         event.status === 'completed' ||
         event.status === 'failed' ||
-        event.status === 'canceled' ||
         event.status === 'idle'
       ) {
-        ui.setIdeActiveEditHighlight(null)
+        setTimeout(() => {
+          ui.setIdeActiveEditHighlight(null)
+        }, 650)
       }
       break
 

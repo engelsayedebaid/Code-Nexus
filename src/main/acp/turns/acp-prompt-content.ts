@@ -25,6 +25,10 @@ import { ACP_MAX_LINE_BYTES } from '../transport/acp-peer-limits'
 import { acpAgentName } from '../session/acp-structured-agent-definitions'
 import type { AcpStructuredConnection } from '../process/acp-structured-connection'
 import { acpSessionAcceptsImages } from '../protocol/acp-image-capability'
+import {
+  hasStorePastedTextReference,
+  resolveAgentSessionBodyPastedText
+} from '../../native-chat/agent-session-attachments/agent-session-text-attachment-dispatch'
 import type { ContentBlock } from '../generated/acp-protocol.generated'
 
 // Reserve space for the JSON-RPC envelope around the prompt blocks.
@@ -123,8 +127,16 @@ export async function acpPromptBlocks(
   body: AgentJournalMessageItem,
   acceptsImages: boolean
 ): Promise<ContentBlock[]> {
+  const signal = AbortSignal.timeout(READ_TIMEOUT_MS)
+  const resolvedBody = hasStorePastedTextReference(body)
+    ? await resolveAgentSessionBodyPastedText(body, {
+        mode: 'inline',
+        inlineBudgetBytes: Math.min(48 * 1024, Math.floor(ACP_PROMPT_LINE_BUDGET * 0.25)),
+        signal
+      })
+    : body
   // Reserve later text and file references before allocating image capacity.
-  const blocks: ContentBlock[] = body.blocks.map((block) => {
+  const blocks: ContentBlock[] = resolvedBody.blocks.map((block) => {
     if (block.type === 'text') {
       return { type: 'text', text: block.text }
     }
@@ -134,10 +146,9 @@ export async function acpPromptBlocks(
   const blockBytes = (block: ContentBlock): number => Buffer.byteLength(JSON.stringify(block))
   let encodedBytes =
     2 + Math.max(0, blocks.length - 1) + blocks.reduce((n, b) => n + blockBytes(b), 0)
-  const signal = AbortSignal.timeout(READ_TIMEOUT_MS)
   let imageCount = 0
   let imageBytes = 0
-  for (const [index, block] of body.blocks.entries()) {
+  for (const [index, block] of resolvedBody.blocks.entries()) {
     if (block.type === 'text') {
       continue
     }

@@ -244,7 +244,7 @@ export default function NexusCouncilWorkspace(): React.JSX.Element | null {
       groupId: target.groupId,
       launchSource: 'tab_bar_quick_launch',
       promptDelivery: 'draft',
-      prompt: `Implement this approved Code Nexus Council decision. Re-verify assumptions before editing and keep changes scoped.\n\n${session.finalDecision}`
+      prompt: `Implement this approved Carver Council decision. Re-verify assumptions before editing and keep changes scoped.\n\n${session.finalDecision}`
     })
     setConfirmImplementation(false)
     setTarget(null)
@@ -390,8 +390,8 @@ export default function NexusCouncilWorkspace(): React.JSX.Element | null {
           <DialogHeader>
             <DialogTitle size="compact">Open an implementation session?</DialogTitle>
             <DialogDescription size="compact">
-              Code Nexus will open a separate coding-agent tab with the approved decision as an
-              unsent draft. No code changes begin until you review and send it.
+              Carver will open a separate coding-agent tab with the approved decision as an unsent
+              draft. No code changes begin until you review and send it.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -12,6 +12,10 @@ import type { NativeChatImageRefBlock } from '../../../../shared/native-chat/nat
 import { agentInlineImageMimeType } from '../../../../shared/agent-inline-image-types'
 import { detectImageFileSignature } from '../../../media/image-file-signature'
 import {
+  hasStorePastedTextReference,
+  resolveAgentSessionBodyPastedText
+} from '../../../native-chat/agent-session-attachments/agent-session-text-attachment-dispatch'
+import {
   agentSessionFailureFact,
   type SubmissionRejectionFact
 } from '../../../../shared/agent-session/failures/agent-session-failure'
@@ -114,10 +118,16 @@ export async function preparePiRpcPrompt(
   if (body.role !== 'user') {
     throw new Error('Pi prompt must be a user message')
   }
+  const resolvedBody = hasStorePastedTextReference(body)
+    ? await resolveAgentSessionBodyPastedText(body, {
+        mode: 'inline',
+        inlineBudgetBytes: Math.min(48 * 1024, Math.max(8 * 1024, MAX_TEXT_WIRE_BYTES - 16 * 1024))
+      })
+    : body
   const texts: string[] = []
   const images: PiRpcPrompt['images'] = []
   let totalImageBytes = 0
-  for (const block of body.blocks) {
+  for (const block of resolvedBody.blocks) {
     if (block.type === 'text' && block.text.length > 0) {
       texts.push(block.text)
     } else if (block.type === 'image-ref') {

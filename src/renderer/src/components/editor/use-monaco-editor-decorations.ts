@@ -37,6 +37,7 @@ export function useMonacoEditorDecorations(params: {
   } = params
 
   const ideActiveEditHighlight = useAppStore((s) => s.ideActiveEditHighlight)
+  const ideFollowAgent = useAppStore((s) => s.ideFollowAgent)
   const completionOwnerRef = useRef(Symbol('markdown-completion'))
   const completionModelRef = useRef<editor.ITextModel | null>(null)
   const markdownDocLinkDecorationsRef = useRef<MarkdownDocLinkDecorationController | null>(null)
@@ -127,18 +128,43 @@ export function useMonacoEditorDecorations(params: {
         }
       }
     ]
+    if (
+      ideActiveEditHighlight.cursorLine &&
+      (ideActiveEditHighlight.status === 'streaming' ||
+        ideActiveEditHighlight.status === 'revealing')
+    ) {
+      const cLine = Math.max(1, Math.min(maxLines, ideActiveEditHighlight.cursorLine))
+      const maxCol = model.getLineMaxColumn(cLine)
+      const cCol = Math.max(1, Math.min(maxCol, ideActiveEditHighlight.cursorColumn ?? maxCol))
+      nextDecorations.push({
+        range: {
+          startLineNumber: cLine,
+          startColumn: cCol,
+          endLineNumber: cLine,
+          endColumn: cCol
+        },
+        options: {
+          afterContentClassName: 'orca-ide-agent-caret'
+        }
+      })
+    }
     if (!ideEditDecorationsRef.current) {
       ideEditDecorationsRef.current = ed.createDecorationsCollection(nextDecorations)
     } else {
       ideEditDecorationsRef.current.set(nextDecorations)
     }
-    ed.revealRangeInCenterIfOutsideViewport({
-      startLineNumber: startLine,
-      startColumn: 1,
-      endLineNumber: endLine,
-      endColumn: 1
-    })
-  }, [ideActiveEditHighlight, mountedEditor, relativePath])
+    if (ideFollowAgent) {
+      const targetLine = ideActiveEditHighlight.cursorLine
+        ? Math.max(1, Math.min(maxLines, ideActiveEditHighlight.cursorLine))
+        : endLine
+      ed.revealRangeInCenterIfOutsideViewport({
+        startLineNumber: startLine,
+        startColumn: 1,
+        endLineNumber: targetLine,
+        endColumn: 1
+      })
+    }
+  }, [ideActiveEditHighlight, ideFollowAgent, mountedEditor, relativePath])
 
   useEffect(() => {
     const completionOwner = completionOwnerRef.current

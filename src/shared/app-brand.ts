@@ -1,6 +1,6 @@
 import brand from './app-brand.json'
 
-// Code Nexus keeps Orca Nexus's install/data identity so an approved release can upgrade it in
+// Carver keeps Orca Nexus's install/data identity so an approved release can upgrade it in
 // place. The distinct protocol and disabled updater keep stock Orca untouched.
 export const APP_BRAND = {
   productName: brand.productName,

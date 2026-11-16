@@ -52,11 +52,19 @@ export function useIdeChatMention(params: {
     if (!conversation) {
       return
     }
-    const rel = attachment.relativePath ?? attachment.name
+    const token =
+      attachment.kind === 'symbol' && attachment.symbolName
+        ? attachment.symbolName
+        : attachment.kind === 'folder' && attachment.relativePath
+          ? `${attachment.relativePath}/`
+          : attachment.kind === 'selection' && attachment.relativePath && attachment.lineRange
+            ? `${attachment.relativePath}#L${attachment.lineRange.start}-${attachment.lineRange.end}`
+            : (attachment.relativePath ?? attachment.name)
+
     if (mention) {
-      const next = `${draft.slice(0, mention.start)}@${rel} ${draft.slice(mention.end)}`
+      const next = `${draft.slice(0, mention.start)}@${token} ${draft.slice(mention.end)}`
       setDraft(conversation.id, next)
-      const caret = mention.start + rel.length + 2
+      const caret = mention.start + token.length + 2
       requestAnimationFrame(() => {
         const el = textareaRef.current
         if (el) {

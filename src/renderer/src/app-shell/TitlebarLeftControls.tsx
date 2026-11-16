@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, MoreHorizontal, PanelLeft, Search } from 'lucide-react'
-import logo from '../../../../resources/logo.svg'
+import logo from '../../../../resources/carver-logo.png'
 import { useTranslate } from '@/i18n/use-translate'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -52,7 +52,7 @@ export function TitlebarLeftControls({
           <div className="titlebar-traffic-light-pad" />
         ) : showWindowMenuControls ? (
           /* Replace native Windows/Linux chrome with logo and application-menu access. */
-          <img src={logo} alt="" aria-hidden className="titlebar-logo" />
+          <img src={logo} alt="" aria-hidden className="titlebar-brand-logo" />
         ) : !isSidebarNavOnly ? (
           <div className="pl-2" />
         ) : null}
@@ -84,8 +84,8 @@ export function TitlebarLeftControls({
           layout.showTitlebarAppName && (
             <ContextMenu>
               <ContextMenuTrigger asChild>
-                <div className="titlebar-app-name" aria-label={t('auto.App.5096cbbc86', 'Orca')}>
-                  <span className="titlebar-app-name-main">{t('auto.App.5096cbbc86', 'Orca')}</span>
+                <div className="titlebar-app-name" aria-label={t('brand.carver', 'Carver')}>
+                  <span className="titlebar-app-name-main">{t('brand.carver', 'Carver')}</span>
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent>

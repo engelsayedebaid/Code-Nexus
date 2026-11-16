@@ -1,12 +1,8 @@
-import { measureUtf8ByteLength } from '../../utf8-byte-limits'
+import { classifySmartPaste, SMART_PASTE_CONFIG } from '../../smart-paste/smart-paste-config'
 
-export const NATIVE_CHAT_PASTED_TEXT_FILE_THRESHOLD = 32 * 1024
+export const NATIVE_CHAT_PASTED_TEXT_FILE_THRESHOLD = SMART_PASTE_CONFIG.charThreshold
 
-/** A paste this long becomes a "Pasted text" file attachment instead of prompt text. */
+/** A paste this long or multiline becomes a "Pasted text" file attachment instead of prompt text. */
 export function isNativeChatLongPaste(text: string): boolean {
-  return (
-    text.length >= NATIVE_CHAT_PASTED_TEXT_FILE_THRESHOLD ||
-    measureUtf8ByteLength(text, { stopAfterBytes: NATIVE_CHAT_PASTED_TEXT_FILE_THRESHOLD - 1 })
-      .exceededLimit
-  )
+  return classifySmartPaste(text).kind !== 'short'
 }

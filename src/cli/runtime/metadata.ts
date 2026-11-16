@@ -7,7 +7,7 @@ import {
   type RuntimeMetadata
 } from '../../shared/runtime-bootstrap'
 import { RuntimeClientError } from './types'
-import { APP_BRAND_NAME } from '../../shared/app-brand'
+import { APP_BRAND_USER_DATA_NAME } from '../../shared/app-brand'
 
 export function readMetadata(userDataPath: string): RuntimeMetadata {
   const metadataPath = getRuntimeMetadataPath(userDataPath)
@@ -56,18 +56,18 @@ export function getPlatformUserDataPath(
   homeDir = homedir()
 ): string {
   if (platform === 'darwin') {
-    return join(homeDir, 'Library', 'Application Support', APP_BRAND_NAME)
+    return join(homeDir, 'Library', 'Application Support', APP_BRAND_USER_DATA_NAME)
   }
   if (platform === 'win32') {
     const appData = process.env.APPDATA
     if (!appData) {
       throw new RuntimeClientError(
         'runtime_unavailable',
-        'APPDATA is not set, so the Orca runtime metadata path cannot be resolved.'
+        'APPDATA is not set, so the Carver runtime metadata path cannot be resolved.'
       )
     }
-    return join(appData, APP_BRAND_NAME)
+    return join(appData, APP_BRAND_USER_DATA_NAME)
   }
   // Match Electron’s packaged userData path.
-  return join(process.env.XDG_CONFIG_HOME || join(homeDir, '.config'), APP_BRAND_NAME)
+  return join(process.env.XDG_CONFIG_HOME || join(homeDir, '.config'), APP_BRAND_USER_DATA_NAME)
 }

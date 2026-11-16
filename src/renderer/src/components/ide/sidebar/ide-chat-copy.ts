@@ -57,9 +57,35 @@ export function getIdeFileActionLabel(
   arabic: boolean
 ): string {
   if (!arabic) {
-    return action === 'create' ? 'Create' : action === 'delete' ? 'Delete' : 'Edit'
+    switch (action) {
+      case 'create':
+        return 'Create'
+      case 'delete':
+        return 'Delete'
+      case 'mkdir':
+        return 'New folder'
+      case 'rename':
+        return 'Move'
+      case 'delete_folder':
+        return 'Del folder'
+      default:
+        return 'Edit'
+    }
   }
-  return action === 'create' ? 'إنشاء' : action === 'delete' ? 'حذف' : 'تعديل'
+  switch (action) {
+    case 'create':
+      return 'إنشاء'
+    case 'delete':
+      return 'حذف'
+    case 'mkdir':
+      return 'مجلد جديد'
+    case 'rename':
+      return 'نقل'
+    case 'delete_folder':
+      return 'حذف مجلد'
+    default:
+      return 'تعديل'
+  }
 }
 
 export function getIdeComplexityLabel(

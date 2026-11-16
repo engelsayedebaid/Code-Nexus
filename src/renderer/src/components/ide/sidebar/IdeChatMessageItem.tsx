@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, CheckCircle2, Copy, FileCode2, Terminal, XCircle } from 'lucide-react'
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  FileCode2,
+  Terminal,
+  XCircle
+} from 'lucide-react'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { cn } from '@/lib/class-names'
+import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import {
   hasArabicText,
   isArabicIdeConversation
@@ -17,6 +27,8 @@ import { AppIcon } from '@/components/icons/app-icon'
 import { formatIdeFileCount, getIdeChatCopy, getIdeModeLabel } from './ide-chat-copy'
 import { IdeChatMarkdown } from './IdeChatMarkdown'
 import { IdePlanProposalCard } from './IdePlanProposalCard'
+import { IdeToolActivityTimeline } from './IdeToolActivityTimeline'
+import { IdeMessageAttachmentsList } from './IdeMessageAttachmentsList'
 import { openWorkspaceFileInEditor } from './ide-workspace-navigation'
 
 const LEGACY_PLAN_MARKDOWN_PREFIX =
@@ -72,8 +84,11 @@ export function IdeChatMessageItem({
     .map((id) => commandsById.get(id))
     .filter((c): c is IdeCommandExecutionRecord => Boolean(c))
   const isUser = message.role === 'user'
+  const commandLiveOutput = useIdeAgentStore((s) => s.commandLiveOutput)
 
   const [copied, setCopied] = useState(false)
+  const [showActivity, setShowActivity] = useState(false)
+  const [expandedCommands, setExpandedCommands] = useState<Record<string, boolean>>({})
   const copyTimerRef = useRef<number | null>(null)
   useEffect(() => {
     return () => {
@@ -116,30 +131,12 @@ export function IdeChatMessageItem({
       <div data-testid={`ide-chat-message-${message.role}`} className="flex justify-end">
         <div className="max-w-[88%] space-y-2">
           {message.attachments && message.attachments.length > 0 ? (
-            <div className="flex flex-wrap justify-end gap-1.5">
-              {message.attachments.map((att) => (
-                <div
-                  key={att.id}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/70 px-2 py-1 text-2xs"
-                >
-                  {att.kind === 'image' && att.dataUrl ? (
-                    <img src={att.dataUrl} alt={att.name} className="size-4 rounded object-cover" />
-                  ) : (
-                    <AppIcon name="attachFile" className="size-3 text-muted-foreground" />
-                  )}
-                  <span dir="ltr" className="max-w-[160px] truncate font-mono text-2xs">
-                    {att.name}
-                  </span>
-                  {att.sensitiveWarning ? (
-                    <AppIcon
-                      name="warning"
-                      className="size-3 text-amber-500"
-                      label={copy.sensitiveFile}
-                    />
-                  ) : null}
-                </div>
-              ))}
-            </div>
+            <IdeMessageAttachmentsList
+              conversationId={conversation.id}
+              attachments={message.attachments}
+              align="end"
+              sensitiveFileLabel={copy.sensitiveFile}
+            />
           ) : null}
           <div
             dir="auto"
@@ -166,6 +163,12 @@ export function IdeChatMessageItem({
     hour: '2-digit',
     minute: '2-digit'
   })
+  const runActivity =
+    !isProposalForPlan && message.runId
+      ? conversation.activity.filter(
+          (ev) => ev.runId === message.runId && ev.type !== 'editor.edit_chunk'
+        )
+      : []
 
   return (
     <div
@@ -204,30 +207,12 @@ export function IdeChatMessageItem({
       </div>
 
       {message.attachments && message.attachments.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {message.attachments.map((att) => (
-            <div
-              key={att.id}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/70 px-2 py-1 text-2xs"
-            >
-              {att.kind === 'image' && att.dataUrl ? (
-                <img src={att.dataUrl} alt={att.name} className="size-4 rounded object-cover" />
-              ) : (
-                <AppIcon name="attachFile" className="size-3 text-muted-foreground" />
-              )}
-              <span dir="ltr" className="max-w-[160px] truncate font-mono text-2xs">
-                {att.name}
-              </span>
-              {att.sensitiveWarning ? (
-                <AppIcon
-                  name="warning"
-                  className="size-3 text-amber-500"
-                  label={copy.sensitiveFile}
-                />
-              ) : null}
-            </div>
-          ))}
-        </div>
+        <IdeMessageAttachmentsList
+          conversationId={conversation.id}
+          attachments={message.attachments}
+          align="start"
+          sensitiveFileLabel={copy.sensitiveFile}
+        />
       ) : null}
 
       {displayContent ? (
@@ -261,41 +246,92 @@ export function IdeChatMessageItem({
         </div>
       ) : null}
 
+      {runActivity.length > 0 ? (
+        <div className="rounded-xl border border-border/60 bg-card/60 p-2.5">
+          <button
+            type="button"
+            onClick={() => setShowActivity((prev) => !prev)}
+            className="flex w-full items-center gap-1.5 text-2xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {showActivity ? (
+              <ChevronDown className="size-3 shrink-0" />
+            ) : (
+              <ChevronRight className="size-3 shrink-0" />
+            )}
+            <span>
+              {isArabic ? `النشاط (${runActivity.length})` : `Activity (${runActivity.length})`}
+            </span>
+          </button>
+          {showActivity ? (
+            <div className="mt-2">
+              <IdeToolActivityTimeline events={runActivity} isArabic={isArabic} compact />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {linkedCommands.length > 0 ? (
         <div className="space-y-1 rounded-xl border border-border/60 bg-card/60 p-2.5">
           <div className="text-2xs font-medium text-muted-foreground">{copy.commandsTitle}</div>
           <div className="space-y-1">
-            {linkedCommands.map((cmd) => (
-              <div
-                key={cmd.id}
-                className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1 text-2xs"
-              >
-                <span
-                  dir="ltr"
-                  className="flex min-w-0 items-center gap-1.5 font-mono text-foreground/90"
-                >
-                  <Terminal className="size-3 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{cmd.command}</span>
-                </span>
-                <span
-                  className={cn(
-                    'inline-flex shrink-0 items-center gap-1 font-medium',
-                    cmd.status === 'passed' ? 'text-emerald-500' : 'text-destructive'
-                  )}
-                >
-                  {cmd.status === 'passed' ? (
-                    <CheckCircle2 className="size-3" />
-                  ) : (
-                    <XCircle className="size-3" />
-                  )}
-                  {cmd.status === 'passed'
-                    ? copy.passed
-                    : cmd.status === 'failed'
-                      ? copy.failed
-                      : cmd.status}
-                </span>
-              </div>
-            ))}
+            {linkedCommands.map((cmd) => {
+              const liveText = commandLiveOutput[cmd.id]
+              const combinedOutput = (liveText ?? `${cmd.stdoutTail}${cmd.stderrTail}`).trim()
+              const hasOutput = combinedOutput.length > 0
+              const expanded = Boolean(expandedCommands[cmd.id])
+              return (
+                <div key={cmd.id} className="rounded-md bg-muted/50 px-2 py-1 text-2xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      disabled={!hasOutput}
+                      onClick={() =>
+                        setExpandedCommands((prev) => ({ ...prev, [cmd.id]: !prev[cmd.id] }))
+                      }
+                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    >
+                      {hasOutput ? (
+                        expanded ? (
+                          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+                        )
+                      ) : (
+                        <Terminal className="size-3 shrink-0 text-muted-foreground" />
+                      )}
+                      <span dir="ltr" className="truncate font-mono text-foreground/90">
+                        {cmd.command}
+                      </span>
+                    </button>
+                    <span
+                      className={cn(
+                        'inline-flex shrink-0 items-center gap-1 font-medium',
+                        cmd.status === 'passed' ? 'text-emerald-500' : 'text-destructive'
+                      )}
+                    >
+                      {cmd.status === 'passed' ? (
+                        <CheckCircle2 className="size-3" />
+                      ) : (
+                        <XCircle className="size-3" />
+                      )}
+                      {cmd.status === 'passed'
+                        ? copy.passed
+                        : cmd.status === 'failed'
+                          ? copy.failed
+                          : cmd.status}
+                    </span>
+                  </div>
+                  {expanded && hasOutput ? (
+                    <pre
+                      dir="ltr"
+                      className="scrollbar-sleek mt-1.5 max-h-36 overflow-auto rounded bg-background/80 p-1.5 font-mono text-3xs whitespace-pre-wrap text-muted-foreground"
+                    >
+                      {combinedOutput.slice(-2000)}
+                    </pre>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         </div>
       ) : null}

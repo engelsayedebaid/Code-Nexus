@@ -1235,6 +1235,14 @@ html.native-shell .app-layout {
   opacity: 0.75;
 }
 
+.titlebar-brand-logo {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin: 0 4px 0 8px;
+  object-fit: contain;
+}
+
 .titlebar-menu {
   display: flex;
   align-items: center;
@@ -2880,6 +2888,29 @@ html.native-shell .app-layout {
   background: var(--foreground);
   opacity: 0.65;
   border-radius: 999px;
+}
+
+.monaco-editor .orca-ide-agent-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.15em;
+  vertical-align: text-bottom;
+  background: var(--foreground);
+  opacity: 0.85;
+  animation: orca-ide-caret-pulse 1s steps(2, start) infinite;
+}
+
+@keyframes orca-ide-caret-pulse {
+  to {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monaco-editor .orca-ide-agent-caret {
+    animation: none;
+    opacity: 0.85;
+  }
 }
 
 /* Compact Monaco tooltip wrappers overlap find buttons, causing mouseleave/dispose/mouseover flicker.

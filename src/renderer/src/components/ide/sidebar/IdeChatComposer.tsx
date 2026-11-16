@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/class-names'
+import { getActiveIdeEditorSelection } from '@/lib/ide-agent/ide-editor-selection'
 import { useAppStore } from '@/store'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import type {
@@ -16,8 +17,10 @@ import {
 } from '../../../../../shared/ide-agent/ide-plan-policy'
 import { AppIcon } from '@/components/icons/app-icon'
 import { IdeChatWorkspaceFilePicker } from './IdeChatWorkspaceFilePicker'
+import { IdeComposerAttachmentsBar } from './IdeComposerAttachmentsBar'
 import { IdeComposerModeModelPicker } from './IdeComposerModeModelPicker'
 import { useIdeChatMention } from './use-ide-chat-mention'
+import { useIdeSmartPaste } from './use-ide-smart-paste'
 
 function makeAttachmentId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -53,11 +56,32 @@ export function IdeChatComposer({
   const attachments = attachmentsByConversation[convId] ?? []
 
   const [showFilePicker, setShowFilePicker] = useState(false)
+  const [draggingOver, setDraggingOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const externalFileInputRef = useRef<HTMLInputElement | null>(null)
+  const {
+    savingPasteCount,
+    pasteNotice,
+    clearPasteNotice,
+    readImageFileAsAttachment,
+    handlePaste,
+    getFallbackPreviewText
+  } = useIdeSmartPaste({
+    conversationId: conversation?.id ?? null,
+    addAttachment
+  })
   const { mention, textareaRef, refreshMention, onDraftChange, handleMentionAttach, closeMention } =
     useIdeChatMention({ conversation, draft, setDraft, addAttachment })
+
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) {
+      return
+    }
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 56), 160)}px`
+  }, [draft, textareaRef])
 
   const handleAttachActiveEditorContext = async () => {
     if (!conversation) {
@@ -70,6 +94,19 @@ export function IdeChatComposer({
     }
     const cleanRel = normalizeWorkspaceRelativePath(active.relativePath || active.filePath)
     const sensitive = classifySensitiveFilePath(cleanRel, 'read-context') !== null
+    const activeSelection = !sensitive ? getActiveIdeEditorSelection(cleanRel) : null
+    if (activeSelection && activeSelection.text.trim().length > 0) {
+      addAttachment(conversation.id, {
+        id: makeAttachmentId('sel'),
+        kind: 'selection',
+        name: cleanRel,
+        relativePath: cleanRel,
+        lineRange: { start: activeSelection.startLine, end: activeSelection.endLine },
+        previewText: activeSelection.text.slice(0, 6000),
+        sensitiveWarning: false
+      })
+      return
+    }
     let previewText: string | undefined
     if (window.api?.fs?.readFile && !sensitive) {
       try {
@@ -90,25 +127,6 @@ export function IdeChatComposer({
       sensitiveWarning: sensitive
     }
     addAttachment(conversation.id, attachment)
-  }
-
-  const readImageFileAsAttachment = (file: File) => {
-    if (!conversation || !file.type.startsWith('image/')) {
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        addAttachment(conversation.id, {
-          id: makeAttachmentId('img'),
-          kind: 'image',
-          name: file.name || 'pasted-image.png',
-          mimeType: file.type,
-          dataUrl: reader.result
-        })
-      }
-    }
-    reader.readAsDataURL(file)
   }
 
   const readExternalTextFile = (file: File) => {
@@ -140,7 +158,7 @@ export function IdeChatComposer({
   }
 
   const handleSend = async () => {
-    if (!conversation || !worktreeSelector || submitting || isRunning) {
+    if (!conversation || !worktreeSelector || submitting || isRunning || savingPasteCount > 0) {
       return
     }
     const trimmed = draft.trim()
@@ -169,6 +187,7 @@ export function IdeChatComposer({
       {(showFilePicker || mention) && conversation ? (
         <IdeChatWorkspaceFilePicker
           workspacePath={workspacePath}
+          worktreeId={worktreeId}
           initialQuery={mention?.query ?? ''}
           onAttach={handleMentionAttach}
           onClose={() => {
@@ -179,40 +198,46 @@ export function IdeChatComposer({
         />
       ) : null}
 
-      <div className="border-t border-border/60 bg-background px-4 pb-3 pt-2">
-        <div className="mx-auto w-full max-w-2xl rounded-2xl border border-border/70 bg-card/60 shadow-xs transition-colors focus-within:border-ring/40">
-          {attachments.length > 0 && conversation ? (
-            <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
-              {attachments.map((att) => (
-                <span
-                  key={att.id}
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10.5px]',
-                    att.sensitiveWarning
-                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
-                      : 'border-border bg-muted/40 text-foreground'
-                  )}
-                >
-                  {att.kind === 'image' && att.dataUrl ? (
-                    <img
-                      src={att.dataUrl}
-                      alt={att.name}
-                      className="size-3.5 rounded object-cover"
-                    />
-                  ) : null}
-                  <span className="max-w-[140px] truncate font-mono">{att.name}</span>
-                  {att.sensitiveWarning ? <AppIcon name="warning" className="size-3" /> : null}
-                  <button
-                    type="button"
-                    aria-label={`Remove ${att.name}`}
-                    onClick={() => removeAttachment(conversation.id, att.id)}
-                    className="hover:text-destructive"
-                  >
-                    <AppIcon name="close" className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
+      <div className="bg-background px-3 pb-3 pt-2">
+        <div
+          onDragOver={(e) => {
+            if (!conversation || !e.dataTransfer?.types.includes('Files')) {
+              return
+            }
+            e.preventDefault()
+            setDraggingOver(true)
+          }}
+          onDragLeave={() => setDraggingOver(false)}
+          onDrop={(e) => {
+            if (!conversation) {
+              return
+            }
+            const files = Array.from(e.dataTransfer?.files ?? [])
+            if (files.length === 0) {
+              return
+            }
+            e.preventDefault()
+            setDraggingOver(false)
+            for (const file of files) {
+              readExternalTextFile(file)
+            }
+          }}
+          className={cn(
+            'mx-auto w-full max-w-2xl rounded-xl border bg-card/70 shadow-xs transition-[border-color,box-shadow,background-color] focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/20',
+            draggingOver ? 'border-primary bg-primary/5' : 'border-border'
+          )}
+        >
+          {conversation ? (
+            <IdeComposerAttachmentsBar
+              conversationId={conversation.id}
+              attachments={attachments}
+              contextBudget={conversation.contextBudget}
+              savingPasteCount={savingPasteCount}
+              pasteNotice={pasteNotice}
+              onDismissPasteNotice={clearPasteNotice}
+              getFallbackPreviewText={getFallbackPreviewText}
+              onRemove={removeAttachment}
+            />
           ) : null}
 
           <Textarea
@@ -222,29 +247,17 @@ export function IdeChatComposer({
             disabled={!conversation}
             data-testid="ide-chat-composer-input"
             placeholder={
-              conversation
-                ? `Ask Code Nexus anything — @ to mention files, Enter to send`
-                : 'Message Code Nexus — it can create files in a private scratch folder'
+              conversation ? 'Plan, build, / for skills, @ for context' : 'Preparing Carver…'
             }
             rows={2}
-            className="min-h-[42px] max-h-36 resize-none border-0 bg-transparent px-3 pb-1 pt-2 text-xs shadow-none focus-visible:border-0 focus-visible:ring-0"
+            className="min-h-14 max-h-40 resize-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
             onChange={(e) => {
               onDraftChange(e.target.value, e.target.selectionStart)
             }}
             onSelect={refreshMention}
             onKeyUp={refreshMention}
             onClick={refreshMention}
-            onPaste={(e) => {
-              const items = Array.from(e.clipboardData?.items ?? [])
-              for (const item of items) {
-                if (item.kind === 'file' && item.type.startsWith('image/')) {
-                  const file = item.getAsFile()
-                  if (file) {
-                    readImageFileAsAttachment(file)
-                  }
-                }
-              }
-            }}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === 'Escape' && mention) {
                 closeMention()
@@ -340,44 +353,52 @@ export function IdeChatComposer({
             </div>
 
             <div className="flex shrink-0 items-center gap-1">
-              {isRunning && conversation?.activeRunId ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2.5 text-xs"
-                  onClick={() =>
-                    void controlRun({
-                      conversationId: conversation.id,
-                      runId: conversation.activeRunId!,
-                      action: 'stop'
-                    })
-                  }
-                  data-testid="ide-chat-stop-btn"
-                >
-                  <AppIcon name="stop" className="mr-1 size-3" />
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  className="h-7 px-2.5 text-xs"
-                  disabled={
-                    !conversation ||
-                    !worktreeSelector ||
-                    submitting ||
-                    (!draft.trim() && attachments.length === 0)
-                  }
-                  onClick={() => void handleSend()}
-                  data-testid="ide-chat-send-btn"
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-1 size-3 animate-spin" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {isRunning && conversation?.activeRunId ? (
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() =>
+                        void controlRun({
+                          conversationId: conversation.id,
+                          runId: conversation.activeRunId!,
+                          action: 'stop'
+                        })
+                      }
+                      data-testid="ide-chat-stop-btn"
+                      aria-label="Stop agent"
+                    >
+                      <AppIcon name="stop" className="size-3" />
+                    </Button>
                   ) : (
-                    <AppIcon name="send" className="mr-1 size-3" />
+                    <Button
+                      size="icon-sm"
+                      className="rounded-full"
+                      disabled={
+                        !conversation ||
+                        !worktreeSelector ||
+                        submitting ||
+                        savingPasteCount > 0 ||
+                        (!draft.trim() && attachments.length === 0)
+                      }
+                      onClick={() => void handleSend()}
+                      data-testid="ide-chat-send-btn"
+                      aria-label="Send message"
+                    >
+                      {submitting ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <AppIcon name="send" className="size-3.5" />
+                      )}
+                    </Button>
                   )}
-                  Send
-                </Button>
-              )}
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {isRunning && conversation?.activeRunId ? 'Stop agent' : 'Send message'}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>

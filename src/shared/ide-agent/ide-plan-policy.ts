@@ -40,6 +40,7 @@ function stablePlanFingerprintInput(plan: {
     affectedFiles: plan.affectedFiles.map((file) => ({
       path: normalizeWorkspaceRelativePath(file.path),
       action: file.action,
+      ...(file.fromPath ? { fromPath: normalizeWorkspaceRelativePath(file.fromPath) } : {}),
       summary: file.summary.trim()
     })),
     steps: plan.steps.map((step) => ({
@@ -83,7 +84,10 @@ export function isPlanApprovedForExecution(
     return { ok: false, reason: 'No approved implementation plan exists for this task.' }
   }
   if (plan.status === 'rejected') {
-    return { ok: false, reason: 'The implementation plan was rejected. Revise or create a new plan.' }
+    return {
+      ok: false,
+      reason: 'The implementation plan was rejected. Revise or create a new plan.'
+    }
   }
   if (plan.status !== 'approved' && plan.status !== 'executing') {
     return {
@@ -109,10 +113,24 @@ export function isPlanApprovedForExecution(
     }
   }
   if (requestedFiles && requestedFiles.length > 0) {
-    const allowed = new Set(plan.affectedFiles.map((file) => normalizeWorkspaceRelativePath(file.path)))
+    const allowed = new Set<string>()
+    for (const file of plan.affectedFiles) {
+      allowed.add(normalizeWorkspaceRelativePath(file.path))
+      if (file.fromPath) {
+        allowed.add(normalizeWorkspaceRelativePath(file.fromPath))
+      }
+    }
     for (const candidate of requestedFiles) {
       const normalized = normalizeWorkspaceRelativePath(candidate)
-      if (!allowed.has(normalized)) {
+      // Creating or modifying a file under an explicitly approved folder action is within scope.
+      const underApprovedFolder = plan.affectedFiles.some((file) => {
+        if (file.action !== 'mkdir') {
+          return false
+        }
+        const folder = normalizeWorkspaceRelativePath(file.path).replace(/\/+$/, '')
+        return normalized === folder || normalized.startsWith(`${folder}/`)
+      })
+      if (!allowed.has(normalized) && !underApprovedFolder) {
         return {
           ok: false,
           reason: `File "${normalized}" is outside the approved plan scope.`,

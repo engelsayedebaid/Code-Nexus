@@ -1,3 +1,6 @@
+import type { IdeContextBudgetSummary } from './ide-agent-events'
+import type { PastedContentFormat } from '../smart-paste/smart-paste-config'
+
 export type IdeExecutionMode = 'ask' | 'plan' | 'agent' | 'review'
 
 export type IdeLiveEditSpeed = 'natural' | 'fast' | 'instant'
@@ -24,7 +27,8 @@ export type IdePlanStatus =
 
 export type IdePlanFileAction = {
   path: string
-  action: 'create' | 'modify' | 'delete'
+  action: 'create' | 'modify' | 'delete' | 'mkdir' | 'rename' | 'delete_folder'
+  fromPath?: string
   summary: string
 }
 
@@ -34,7 +38,7 @@ export type IdePlanStep = {
   title: string
   detail: string
   targetFiles: string[]
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped'
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped' | 'blocked'
 }
 
 export type IdePlanApprovalRecord = {
@@ -150,6 +154,9 @@ export type IdeActivityEventType =
   | 'analysis.started'
   | 'analysis.file_read'
   | 'analysis.completed'
+  | 'tool.search'
+  | 'tool.symbol_lookup'
+  | 'diagnostics.checked'
   | 'plan.generated'
   | 'plan.approved'
   | 'plan.rejected'
@@ -163,8 +170,13 @@ export type IdeActivityEventType =
   | 'step.failed'
   | 'editor.file_opened'
   | 'editor.edit_chunk'
+  | 'live_edit.started'
+  | 'live_edit.completed'
+  | 'folder.created'
+  | 'folder.deleted'
   | 'file.created'
   | 'file.modified'
+  | 'file.renamed'
   | 'file.deleted'
   | 'file.conflict'
   | 'checkpoint.created'
@@ -195,10 +207,18 @@ export type IdeActivityEvent = {
 
 export type IdeChatAttachment = {
   id: string
-  kind: 'file' | 'image' | 'workspace-context'
+  kind: 'file' | 'folder' | 'symbol' | 'selection' | 'image' | 'workspace-context' | 'pasted_text'
   name: string
   relativePath?: string
+  symbolName?: string
   mimeType?: string
+  sizeBytes?: number
+  lineCount?: number
+  charCount?: number
+  format?: PastedContentFormat
+  createdAt?: number
+  status?: 'ready' | 'missing' | 'error'
+  truncatedInPrompt?: boolean
   dataUrl?: string
   previewText?: string
   lineRange?: { start: number; end: number }
@@ -261,6 +281,7 @@ export type IdeConversation = {
   checkpoints: IdeCheckpoint[]
   commandExecutions: IdeCommandExecutionRecord[]
   pendingPermissions: IdePermissionRequest[]
+  contextBudget?: IdeContextBudgetSummary
 }
 
 export type IdeConversationSummary = {
@@ -288,6 +309,7 @@ export type IdeTodoItem = {
 }
 
 export type {
+  IdeContextBudgetSummary,
   IdeProviderModelOption,
   IdeProviderAgentOption,
   IdeEditorHighlightTarget,

@@ -25,7 +25,7 @@ export async function resolveCouncilTargetWorktree(runtime: OrcaRuntimeService, 
       return await runtime.resolveRuntimeFileTarget(folderWorkspaceKey(localFolder.id))
     }
     if (folderMatches.length > 0) {
-      throw new Error('Council text tasks on remote hosts require a newer Code Nexus runtime.')
+      throw new Error('Council text tasks on remote hosts require a newer Carver runtime.')
     }
     const floating = await runtime.resolveRuntimeFileTarget('floating').catch(() => null)
     if (floating && runtimePathsEqual(floating.worktree.path, worktree)) {

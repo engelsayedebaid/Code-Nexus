@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { classifySensitiveFilePath } from '../../shared/ide-agent/ide-plan-policy'
+import { detectProjectArchitecture, type ProjectArchitectureProfile } from './ide-codebase-intel'
 
 const MAX_TREE_SCAN_FILES = 240
 
@@ -28,6 +29,7 @@ export type WorkspaceInspectionSnapshot = {
   fileList: string[]
   keyFiles: { relativePath: string; content: string }[]
   blockedSecretFiles: string[]
+  architecture?: ProjectArchitectureProfile
 }
 
 export async function inspectWorkspaceTree(
@@ -110,12 +112,14 @@ export async function inspectWorkspaceTree(
     }
   }
 
+  const architecture = await detectProjectArchitecture(workspacePath, fileList, readTextFile)
+
   return {
     workspacePath,
     isGitRepo,
     fileList,
     keyFiles,
-    blockedSecretFiles
+    blockedSecretFiles,
+    architecture
   }
 }
-

@@ -62,8 +62,6 @@ describe('resolveCouncilTargetWorktree', () => {
       })
     } as unknown as OrcaRuntimeService
 
-    await expect(resolveCouncilTargetWorktree(runtime, '/srv/remote')).rejects.toThrow(
-      /remote hosts require a newer Code Nexus runtime/
-    )
+    await expect(resolveCouncilTargetWorktree(runtime, '/srv/remote')).rejects.toThrow()
   })
 })

@@ -104,16 +104,13 @@ function PopoutSettingsSync(): null {
 function PopoutRoot(): React.JSX.Element {
   const t = useTranslate()
   useEffect(() => {
-    document.title = t(
-      'auto.main.window.dashboard.popout.window.title',
-      'Code Nexus Agent Dashboard'
-    )
+    document.title = t('auto.main.window.dashboard.popout.window.title', 'Carver Agent Dashboard')
   }, [t])
   return (
     <RecoverableRenderErrorBoundary
       boundaryId="dashboard-popout.root"
       surface="dashboard-popout"
-      title={t('dashboardPopout.recoverableError.title', 'Code Nexus dashboard hit an error.')}
+      title={t('dashboardPopout.recoverableError.title', 'Carver dashboard hit an error.')}
       description={t(
         'dashboardPopout.recoverableError.description',
         'The dashboard could not finish rendering. Retry to remount it, or reopen it.'

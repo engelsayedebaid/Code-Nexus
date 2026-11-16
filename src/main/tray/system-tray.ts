@@ -84,7 +84,7 @@ function applyTrayImage(): void {
         tray.setToolTip(
           devIndicator
             ? `${baseTooltip()} - ${translateMain('tray.activityWaitingSuffix', 'activity waiting')}`
-            : translateMain('tray.activityWaiting', 'Code Nexus - activity waiting')
+            : translateMain('tray.activityWaiting', 'Carver - activity waiting')
         )
         return
       } catch (error) {

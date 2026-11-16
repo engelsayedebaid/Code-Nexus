@@ -7,9 +7,9 @@ import { stripSentImagePromptMarkers } from '../../native-chat/transcript/native
 export const STRUCTURED_CHAT_NAME_PROMPT_LIMIT = 4000
 
 const ATTACHMENT_PATH_PATTERNS: readonly RegExp[] = [
-  /"[^"\r\n]*[\\/]agent-session-attachments[\\/][0-9a-f-]{36}[\\/][^"\r\n]*"/gi,
+  /@?"[^"\r\n]*[\\/]agent-session-attachments[\\/][^\\/"\r\n]+[\\/][^"\r\n]*"/gi,
   /file:\/\/\/[^\s"'`<>[\])]*[\\/]agent-session-attachments[\\/][0-9a-f-]{36}[\\/][^\s"'`<>[\])]+/gi,
-  /(?:[A-Za-z]:\\|\/)[^\r\n"'`<>[\])]*[\\/]agent-session-attachments[\\/][0-9a-f-]{36}[\\/][^\s"'`<>[\])]+/gi,
+  /@?(?:[A-Za-z]:\\|\/)[^\r\n"'`<>[\])]*[\\/]agent-session-attachments[\\/][0-9a-f-]{36}[\\/][^\s"'`<>[\])]+/gi,
   /"[^"\r\n]*AppData[\\/](?:Local|Roaming|LocalLow)[\\/]Temp[\\/][^"\r\n]*"/gi,
   /[A-Za-z]:\\[^\r\n"'`<>[\])]*AppData[\\/](?:Local|Roaming|LocalLow)[\\/]Temp[\\/][^\s"'`<>[\])]+/gi
 ]

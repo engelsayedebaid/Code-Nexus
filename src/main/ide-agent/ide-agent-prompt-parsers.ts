@@ -1,5 +1,6 @@
 import { normalizeWorkspaceRelativePath } from '../../shared/ide-agent/ide-plan-policy'
 import type { IdePlanFileAction } from '../../shared/ide-agent/ide-agent-types'
+import type { SearchReplacePatch } from '../../shared/ide-agent/ide-patch-chunker'
 
 export type RawPlannedTask = {
   intro?: string
@@ -22,8 +23,10 @@ export type RawPlannerTurnResult =
 
 export type RawStepExecutionOperation = {
   path: string
-  action: 'create' | 'modify' | 'delete'
+  fromPath?: string
+  action: 'create' | 'modify' | 'delete' | 'patch' | 'mkdir' | 'rename' | 'delete_folder'
   content?: string
+  patches?: SearchReplacePatch[]
   rationale?: string
 }
 
@@ -32,6 +35,11 @@ export type RawStepExecutionResult = {
   operations: RawStepExecutionOperation[]
   verificationCommands: string[]
   notes?: string
+}
+
+export type RawAgentToolCall = {
+  tool: string
+  args: Record<string, unknown>
 }
 
 export function extractJsonObjectFromAiOutput(raw: string): Record<string, unknown> | null {
@@ -60,6 +68,43 @@ export function extractJsonObjectFromAiOutput(raw: string): Record<string, unkno
   return null
 }
 
+export function parseToolCallsFromAiOutput(raw: string): RawAgentToolCall[] | null {
+  const parsed = extractJsonObjectFromAiOutput(raw)
+  if (!parsed || !Array.isArray(parsed.toolCalls) || parsed.toolCalls.length === 0) {
+    return null
+  }
+  const calls: RawAgentToolCall[] = []
+  for (const item of parsed.toolCalls) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+    const rec = item as Record<string, unknown>
+    if (typeof rec.tool !== 'string' || !rec.tool.trim()) {
+      continue
+    }
+    const args =
+      rec.args && typeof rec.args === 'object' && !Array.isArray(rec.args)
+        ? (rec.args as Record<string, unknown>)
+        : {}
+    calls.push({ tool: rec.tool.trim(), args })
+  }
+  return calls.length > 0 ? calls : null
+}
+
+function parsePlanAction(raw: unknown): IdePlanFileAction['action'] {
+  switch (raw) {
+    case 'create':
+    case 'modify':
+    case 'delete':
+    case 'mkdir':
+    case 'rename':
+    case 'delete_folder':
+      return raw
+    default:
+      return 'modify'
+  }
+}
+
 export function parsePlanJsonFromAiOutput(
   raw: string,
   fallbackRequest: string
@@ -85,13 +130,12 @@ export function parsePlanJsonFromAiOutput(
     if (typeof record.path !== 'string' || !record.path.trim()) {
       continue
     }
-    const action =
-      record.action === 'create' || record.action === 'modify' || record.action === 'delete'
-        ? record.action
-        : 'modify'
     affectedFiles.push({
       path: normalizeWorkspaceRelativePath(record.path),
-      action,
+      ...(typeof record.fromPath === 'string' && record.fromPath.trim()
+        ? { fromPath: normalizeWorkspaceRelativePath(record.fromPath) }
+        : {}),
+      action: parsePlanAction(record.action),
       summary: typeof record.summary === 'string' ? record.summary.trim() : ''
     })
   }
@@ -161,7 +205,6 @@ export function parsePlanJsonFromAiOutput(
   }
 }
 
-/** Parses either a direct conversational answer or a structured implementation plan from planner output. */
 export function parsePlanOrAnswerFromAiOutput(
   raw: string,
   fallbackRequest: string
@@ -180,6 +223,21 @@ export function parsePlanOrAnswerFromAiOutput(
     return { kind: 'plan', plan }
   }
   return null
+}
+
+function parseStepAction(raw: unknown): RawStepExecutionOperation['action'] {
+  switch (raw) {
+    case 'create':
+    case 'modify':
+    case 'delete':
+    case 'patch':
+    case 'mkdir':
+    case 'rename':
+    case 'delete_folder':
+      return raw
+    default:
+      return 'modify'
+  }
 }
 
 export function parseStepOperationsFromAiOutput(raw: string): RawStepExecutionResult | null {
@@ -201,17 +259,30 @@ export function parseStepOperationsFromAiOutput(raw: string): RawStepExecutionRe
     if (typeof record.path !== 'string' || !record.path.trim()) {
       continue
     }
-    const action =
-      record.action === 'create' || record.action === 'modify' || record.action === 'delete'
-        ? record.action
-        : 'modify'
-    if (action !== 'delete' && typeof record.content !== 'string') {
+    const action = parseStepAction(record.action)
+    const patches = Array.isArray(record.patches)
+      ? record.patches
+          .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === 'object'))
+          .filter((p) => typeof p.search === 'string' && typeof p.replace === 'string')
+          .map((p) => ({ search: p.search as string, replace: p.replace as string }))
+      : undefined
+    if (action === 'patch' && (!patches || patches.length === 0)) {
+      continue
+    }
+    if ((action === 'create' || action === 'modify') && typeof record.content !== 'string') {
+      continue
+    }
+    if (action === 'rename' && (typeof record.fromPath !== 'string' || !record.fromPath.trim())) {
       continue
     }
     operations.push({
       path: normalizeWorkspaceRelativePath(record.path),
+      ...(typeof record.fromPath === 'string' && record.fromPath.trim()
+        ? { fromPath: normalizeWorkspaceRelativePath(record.fromPath) }
+        : {}),
       action,
       ...(typeof record.content === 'string' ? { content: record.content } : {}),
+      ...(patches && patches.length > 0 ? { patches } : {}),
       ...(typeof record.rationale === 'string' ? { rationale: record.rationale.trim() } : {})
     })
   }

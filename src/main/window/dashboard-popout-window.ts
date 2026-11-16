@@ -150,7 +150,7 @@ export function createOrFocusDashboardPopout(
     ...(savedBounds ? { x: savedBounds.x, y: savedBounds.y } : {}),
     minWidth: MIN_WIDTH,
     minHeight: MIN_HEIGHT,
-    title: translateMain('native.dialog.dashboardTitle', 'Code Nexus Agent Dashboard'),
+    title: translateMain('native.dialog.dashboardTitle', 'Carver Agent Dashboard'),
     show: false,
     autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
@@ -268,7 +268,7 @@ export function createOrFocusDashboardPopout(
   })
   const updateTitle = (): void => {
     if (!window.isDestroyed()) {
-      window.setTitle(translateMain('native.dialog.dashboardTitle', 'Code Nexus Agent Dashboard'))
+      window.setTitle(translateMain('native.dialog.dashboardTitle', 'Carver Agent Dashboard'))
     }
   }
   mainI18n.on('languageChanged', updateTitle)

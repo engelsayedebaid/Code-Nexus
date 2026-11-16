@@ -2,6 +2,7 @@
 
 import { deriveNativeChatRowContent } from '../../../../../shared/native-chat/transcript/native-chat-row-content'
 import { stripSentImagePromptMarkers } from '../../../../../shared/native-chat/transcript/native-chat-image-transcript-markers'
+import { sanitizeUserFacingAttachmentText } from '../../../../../shared/smart-paste/native-chat-attachment-metadata'
 import { projectNativeChatTranscriptMessages } from '../../../../../shared/native-chat/transcript/native-chat-transcript-projection'
 import type { NativeChatMessage } from '../../../../../shared/native-chat/native-chat-types'
 import type { NativeChatCommandMarker } from '../session/terminal/delivery/native-chat-command-marker'
@@ -79,9 +80,12 @@ export function nativeChatSentPrompts(source: NativeChatRecallSource): NativeCha
     push(
       message.id,
       source.withoutImageMarkers
-        ? stripSentImagePromptMarkers(
-            text,
-            message.blocks.filter((block) => block.type === 'image-ref').length
+        ? sanitizeUserFacingAttachmentText(
+            stripSentImagePromptMarkers(
+              text,
+              message.blocks.filter((block) => block.type === 'image-ref').length
+            ),
+            true
           )
         : text
     )

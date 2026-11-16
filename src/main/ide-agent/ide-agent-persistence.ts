@@ -55,12 +55,15 @@ function normalizeRestoredConversation(raw: IdeConversation): IdeConversation {
 
 export class IdeAgentStore {
   private readonly db: SyncDatabase
+  readonly attachmentsRootDir: string | null
 
   constructor(databasePath?: string) {
-    const resolvedPath =
-      databasePath ?? join(getCanonicalUserDataPath(), 'ide-agent.sqlite')
+    const resolvedPath = databasePath ?? join(getCanonicalUserDataPath(), 'ide-agent.sqlite')
     if (resolvedPath !== ':memory:') {
       mkdirSync(dirname(resolvedPath), { recursive: true })
+      this.attachmentsRootDir = join(dirname(resolvedPath), 'ide-agent-attachments')
+    } else {
+      this.attachmentsRootDir = null
     }
     this.db = new SyncDatabase(resolvedPath, { timeout: 5000 })
     this.db.pragma('journal_mode = WAL')

@@ -230,6 +230,7 @@ function TextViewport({
             <div
               key={row.key}
               data-text-segment
+              dir="auto"
               className="whitespace-pre"
               style={{ position: 'absolute', top: row.top, height: layout.rowHeight }}
             >

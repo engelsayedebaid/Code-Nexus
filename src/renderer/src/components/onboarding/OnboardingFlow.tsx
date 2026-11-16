@@ -17,7 +17,7 @@ import { useOnboardingFlow } from './use-onboarding-flow'
 import { OnboardingSkipConfirmationDialog } from './OnboardingSkipConfirmationDialog'
 import { OnboardingFooter } from './OnboardingFooter'
 import { shouldRequestOnboardingSkipConfirmation } from './onboarding-dismiss-target'
-import logo from '../../../../../resources/logo.svg'
+import logo from '../../../../../resources/carver-logo.png'
 import { useTranslate } from '@/i18n/use-translate'
 import { addAppKeyListener, removeAppKeyListener } from '@/lib/keyboard/app-keyboard-router'
 import { useScrollEdgeFades } from '@/lib/list-interaction/use-scroll-edge-fades'
@@ -124,7 +124,7 @@ export default function OnboardingFlow({
         <section
           ref={flow.setLifecycleRootRef}
           role="dialog"
-          aria-label={t('auto.components.onboarding.OnboardingFlow.277ba45540', 'Orca onboarding')}
+          aria-label={t('onboarding.carver', 'Carver onboarding')}
           aria-modal="true"
           data-onboarding-modal
           className={cn(
@@ -139,9 +139,9 @@ export default function OnboardingFlow({
                   src={logo}
                   alt=""
                   aria-hidden="true"
-                  className="h-7 w-auto shrink-0 invert dark:invert-0"
+                  className="size-7 shrink-0 object-contain"
                 />
-                <span>{t('auto.components.onboarding.OnboardingFlow.a249f81538', 'Orca')}</span>
+                <span>{t('brand.carver', 'Carver')}</span>
               </div>
               <OnboardingLanguageSwitcher
                 open={languagePickerOpen}
@@ -195,7 +195,7 @@ export default function OnboardingFlow({
             <div className="mt-8 shrink-0">
               {stepIndex === 0 && (
                 <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  {t('auto.components.onboarding.OnboardingFlow.1b5e182e9f', 'Welcome to Orca')}
+                  {t('onboarding.welcomeToCarver', 'Welcome to Carver')}
                 </div>
               )}
               <h1 className="text-[34px] font-semibold leading-[1.15] tracking-tight text-foreground">
