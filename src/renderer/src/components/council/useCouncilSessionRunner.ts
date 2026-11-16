@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type {
   CouncilGenerationResult,
   CouncilMessage,
@@ -10,6 +10,10 @@ import {
   saveCouncilSession,
   type CouncilSessionStorage
 } from './council-session-storage'
+import {
+  flushPendingChatConversationSave,
+  scheduleCouncilSessionSqliteSync
+} from './council-session-sqlite-sync'
 import {
   createPendingDecisionMessage,
   selectRoundParticipants,
@@ -54,12 +58,24 @@ export function useCouncilSessionRunner(input: {
   const operationIdsRef = useRef(new Set<string>())
   const sessionRef = useRef<CouncilSession | null>(null)
 
+  useEffect(
+    () => () => {
+      void flushPendingChatConversationSave(sessionRef.current?.id)
+    },
+    []
+  )
+
   const persist = useCallback(
     (next: CouncilSession): CouncilSession => {
       const persisted = { ...next, updatedAt: Date.now() }
       sessionRef.current = persisted
       setSession((current) => (!current || current.id === persisted.id ? persisted : current))
-      setSavedSessions(storage.save(persisted))
+      storage.save(persisted)
+      setSavedSessions((current) => [
+        persisted,
+        ...current.filter((item) => item.id !== persisted.id)
+      ])
+      void scheduleCouncilSessionSqliteSync(persisted).catch(() => {})
       return persisted
     },
     [setSavedSessions, setSession, storage]

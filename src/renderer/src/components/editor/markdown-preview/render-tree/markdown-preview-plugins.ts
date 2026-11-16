@@ -13,6 +13,7 @@ import { remarkMarkdownDocLinks } from '../../markdown/documents/markdown-doc-li
 import { GITHUB_CALLOUT_SANITIZE_ATTRIBUTE } from '../../../../../../shared/github/github-callouts'
 import { remarkGitHubCallouts } from '@/lib/markdown/remark-github-callouts'
 import { remarkAutolinkLiteralProseBoundary } from '@/lib/markdown/remark-autolink-literal-prose-boundary'
+import { rehypeMarkdownDirection } from '@/components/sidebar/comment-markdown-direction'
 
 const markdownPreviewSanitizeSchema = {
   ...defaultSchema,
@@ -72,7 +73,12 @@ export const MARKDOWN_REHYPE_NORMALIZATION_PLUGINS: MarkdownPluginList = [
   [rehypeSanitize, markdownPreviewSanitizeSchema],
   rehypeSlug
 ]
-export const MARKDOWN_REHYPE_EXPANSION_PLUGINS: MarkdownPluginList = [rehypeHighlight, rehypeKatex]
+// Direction runs last: sanitize strips `dir`, and expansion must see final text.
+export const MARKDOWN_REHYPE_EXPANSION_PLUGINS: MarkdownPluginList = [
+  rehypeHighlight,
+  rehypeKatex,
+  rehypeMarkdownDirection
+]
 
 // Sanitize raw HTML before math and syntax expansion.
 export const MARKDOWN_REHYPE_PLUGINS: MarkdownPluginList = [

@@ -37,6 +37,24 @@ import {
   DesktopBrowserBridgeAttachParams,
   DesktopBrowserBridgeResultParams
 } from '../desktop-browser-bridge-protocol'
+import {
+  IdeAgentChangeDecisionParams,
+  IdeAgentCreateConversationParams,
+  IdeAgentDeleteConversationParams,
+  IdeAgentEmptyParams,
+  IdeAgentGetConversationParams,
+  IdeAgentListConversationsParams,
+  IdeAgentPermissionDecisionParams,
+  IdeAgentPlanDecisionParams,
+  IdeAgentProvidersParams,
+  IdeAgentRunCommandParams,
+  IdeAgentRunControlParams,
+  IdeAgentSendPromptParams,
+  IdeAgentSubscribeEventsParams,
+  IdeAgentTodosListParams,
+  IdeAgentTodosSaveParams,
+  IdeAgentUpdateConversationParams
+} from '../ide-agent/ide-agent-contract'
 import { MobileWebBundleChunkParamsSchema } from '../mobile-web-bundle/bundle-rpc-contract'
 import { MobileWebBundleLocaleCatalogParamsSchema } from '../mobile-web-bundle/locale-catalog-contract'
 import { OrcadMigrationBlobChunkRequestSchema } from '../orcad-migration/orcad-migration-blob-transfer'
@@ -1246,6 +1264,22 @@ export const RPC_PARAMS_BY_METHOD = {
   'hostedReview.createStacked': HostedReviewCreate,
   'hostedReview.forBranch': HostedReviewForBranch,
   'hostedReview.getCreationEligibility': HostedReviewCreationEligibility,
+  'ideAgent.changeDecision': IdeAgentChangeDecisionParams,
+  'ideAgent.createConversation': IdeAgentCreateConversationParams,
+  'ideAgent.deleteConversation': IdeAgentDeleteConversationParams,
+  'ideAgent.getConversation': IdeAgentGetConversationParams,
+  'ideAgent.listConversations': IdeAgentListConversationsParams,
+  'ideAgent.listProviders': IdeAgentProvidersParams,
+  'ideAgent.permissionDecision': IdeAgentPermissionDecisionParams,
+  'ideAgent.planDecision': IdeAgentPlanDecisionParams,
+  'ideAgent.runCommand': IdeAgentRunCommandParams,
+  'ideAgent.runControl': IdeAgentRunControlParams,
+  'ideAgent.scratchWorkspace': IdeAgentEmptyParams,
+  'ideAgent.sendPrompt': IdeAgentSendPromptParams,
+  'ideAgent.subscribeEvents': IdeAgentSubscribeEventsParams,
+  'ideAgent.todosList': IdeAgentTodosListParams,
+  'ideAgent.todosSave': IdeAgentTodosSaveParams,
+  'ideAgent.updateConversationSettings': IdeAgentUpdateConversationParams,
   'jira.addIssueComment': IssueCommentOfJiraParams,
   'jira.attachmentImage': AttachmentImage,
   'jira.cancelGenerateIssueSummary': CancelGenerateIssueSummary,

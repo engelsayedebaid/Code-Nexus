@@ -28,6 +28,13 @@ import {
   saveCouncilSession
 } from './council-session-storage'
 import {
+  deleteCouncilSessionFromSqlite,
+  hasChatConversationsBridge,
+  loadCouncilSessionDetailFromSqlite,
+  loadWorkspaceCouncilSessionsFromSqlite,
+  setActiveCouncilSessionIdInSqlite
+} from './council-session-sqlite-sync'
+import {
   MODE_LABELS,
   appendCouncilParticipant,
   createCouncilUuid,

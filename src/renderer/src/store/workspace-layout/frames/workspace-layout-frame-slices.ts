@@ -240,6 +240,8 @@ export function buildLayoutFrameSlices({
     tabById: buildByIdIndex(Object.values(rows.tabsByWorktree).flat()),
     validTabIds: rows.validTabIds
   })
+  const viewActiveWorktreeId =
+    view.activeWorktreeId && workspaceKeys.has(view.activeWorktreeId) ? view.activeWorktreeId : null
   const activeTabIdByWorktree = restoreActiveTabIdByWorktree({
     session,
     validWorktreeIds: workspaceKeys,
@@ -247,12 +249,17 @@ export function buildLayoutFrameSlices({
     canonicalTabIdBySubsumedTabId: rows.canonicalTabIdBySubsumedTabId,
     tabsByWorktree: rows.tabsByWorktree,
     // Only a session saved before the per-workspace map reads these.
-    activeWorktreeId:
-      view.activeWorktreeId && workspaceKeys.has(view.activeWorktreeId)
-        ? view.activeWorktreeId
-        : null,
+    activeWorktreeId: viewActiveWorktreeId,
     activeTabId:
-      view.activeTabId && rows.validTabIds.has(view.activeTabId) ? view.activeTabId : null
+      view.activeTabId &&
+      (rows.validTabIds.has(view.activeTabId) ||
+        (viewActiveWorktreeId !== null &&
+          (session.unifiedTabs?.[viewActiveWorktreeId]?.some(
+            (tab) => tab.id === view.activeTabId && tab.contentType === 'agent-session'
+          ) ??
+            false)))
+        ? view.activeTabId
+        : null
   })
 
   const framed = framedViewFiles(layouts)

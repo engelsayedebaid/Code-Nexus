@@ -342,6 +342,7 @@ export function NativeChatQuestionCard({
                   {/* Deliver free text verbatim as a tool result; composer slash commands and autocomplete do not apply. */}
                   {freeTextInput?.multiline ? (
                     <Textarea
+                      dir="auto"
                       data-native-chat-answer-field
                       data-native-chat-prompt-card-focus-target={fieldTakesFocus}
                       disabled={isSubmitting}
@@ -353,6 +354,7 @@ export function NativeChatQuestionCard({
                   ) : (
                     <ImeTextarea
                       ref={answerInputRef}
+                      dir="auto"
                       rows={1}
                       data-native-chat-answer-field
                       data-native-chat-prompt-card-focus-target={fieldTakesFocus}

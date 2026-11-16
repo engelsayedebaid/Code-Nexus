@@ -7,7 +7,9 @@ import type {
   ShellOpenExternalEditorRequest,
   ShellOpenExternalEditorResult,
   ShellOpenFileResult,
-  ShellOpenLocalPathResult
+  ShellOpenLocalPathResult,
+  ShellRunExternalTerminalRequest,
+  ShellRunExternalTerminalResult
 } from '../../shared/shell/opening/shell-open-types'
 import { MAX_REPO_ICON_UPLOAD_BYTES } from '../../shared/repo-icon'
 import {
@@ -20,6 +22,7 @@ import {
   launchExternalEditor,
   resolveExternalEditorLaunchSpec
 } from '../external-editors/external-editor-launch'
+import { runFileInExternalTerminal } from '../external-terminals/external-terminal-run'
 import { resolveRemoteSshEditorLaunchSpec } from '../external-editors/remote-ssh-editor-launch'
 import { resolveOpenInEditorCommand } from '../external-editors/open-in-editor-command'
 import { toSshExecutionHostId } from '../../shared/execution-host'
@@ -60,7 +63,13 @@ async function openInFileManager(
 }
 
 type ShellHandlerStore = Pick<Store, 'getSshTarget'> & {
-  getSettings: () => Pick<ReturnType<Store['getSettings']>, 'openInApplications'>
+  getSettings: () => Pick<ReturnType<Store['getSettings']>, 'openInApplications'> &
+    Partial<
+      Pick<
+        ReturnType<Store['getSettings']>,
+        'terminalWindowsShell' | 'terminalWindowsPowerShellImplementation'
+      >
+    >
 }
 
 async function openInExternalEditor(
@@ -169,6 +178,12 @@ export function registerShellHandlers(
     'shell:openInExternalEditor',
     (_event, request: ShellOpenExternalEditorRequest): Promise<ShellOpenExternalEditorResult> =>
       openInExternalEditor(store, request, listRuntimeEnvironments)
+  )
+
+  ipcMain.handle(
+    'shell:runInExternalTerminal',
+    (_event, request: ShellRunExternalTerminalRequest): Promise<ShellRunExternalTerminalResult> =>
+      runFileInExternalTerminal(store, request)
   )
 
   ipcMain.handle('shell:openUrl', (_event, rawUrl: string) => {

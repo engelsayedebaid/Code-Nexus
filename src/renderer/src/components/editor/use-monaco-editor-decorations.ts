@@ -6,7 +6,9 @@ import {
   setMarkdownDocCompletionDocuments
 } from './markdown-source-tools/monaco/monaco-markdown-doc-completions'
 import type { MarkdownDocLinkDecorationController } from './markdown-source-tools/monaco/monaco-markdown-doc-link-decorations'
+import { useAppStore } from '@/store'
 import { buildGitConflictDecorations } from './monaco-conflict-decorations'
+import { normalizeWorkspaceRelativePath } from '../../../../shared/ide-agent/ide-plan-policy'
 
 export type MonacoEditorDecorations = {
   markdownDocLinkDecorationsRef: MutableRefObject<MarkdownDocLinkDecorationController | null>
@@ -20,6 +22,7 @@ export function useMonacoEditorDecorations(params: {
   mountedEditor: editor.IStandaloneCodeEditor | null
   content: string
   language: string
+  relativePath?: string
   markdownDocuments: MarkdownDocument[] | undefined
   conflictDecorationsEnabled: boolean
 }): MonacoEditorDecorations {
@@ -28,14 +31,17 @@ export function useMonacoEditorDecorations(params: {
     mountedEditor,
     content,
     language,
+    relativePath,
     markdownDocuments,
     conflictDecorationsEnabled
   } = params
 
+  const ideActiveEditHighlight = useAppStore((s) => s.ideActiveEditHighlight)
   const completionOwnerRef = useRef(Symbol('markdown-completion'))
   const completionModelRef = useRef<editor.ITextModel | null>(null)
   const markdownDocLinkDecorationsRef = useRef<MarkdownDocLinkDecorationController | null>(null)
   const conflictDecorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null)
+  const ideEditDecorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null)
 
   const updateMarkdownCompletionDocuments = useCallback((): void => {
     const model = editorRef.current?.getModel() ?? null
@@ -87,6 +93,54 @@ export function useMonacoEditorDecorations(params: {
   }, [updateMarkdownCompletionDocuments])
 
   useEffect(() => {
+    const ed = mountedEditor
+    if (!ed) {
+      return
+    }
+    const model = ed.getModel()
+    if (
+      !model ||
+      !relativePath ||
+      !ideActiveEditHighlight ||
+      normalizeWorkspaceRelativePath(ideActiveEditHighlight.relativePath).toLowerCase() !==
+        normalizeWorkspaceRelativePath(relativePath).toLowerCase()
+    ) {
+      ideEditDecorationsRef.current?.clear()
+      return
+    }
+    const maxLines = Math.max(1, model.getLineCount())
+    const startLine = Math.max(1, Math.min(maxLines, ideActiveEditHighlight.startLine))
+    const endLine = Math.max(startLine, Math.min(maxLines, ideActiveEditHighlight.endLine))
+    const nextDecorations: editor.IModelDeltaDecoration[] = [
+      {
+        range: {
+          startLineNumber: startLine,
+          startColumn: 1,
+          endLineNumber: endLine,
+          endColumn: 1
+        },
+        options: {
+          isWholeLine: true,
+          className: 'orca-ide-agent-edit-line',
+          linesDecorationsClassName: 'orca-ide-agent-edit-gutter',
+          hoverMessage: { value: ideActiveEditHighlight.label }
+        }
+      }
+    ]
+    if (!ideEditDecorationsRef.current) {
+      ideEditDecorationsRef.current = ed.createDecorationsCollection(nextDecorations)
+    } else {
+      ideEditDecorationsRef.current.set(nextDecorations)
+    }
+    ed.revealRangeInCenterIfOutsideViewport({
+      startLineNumber: startLine,
+      startColumn: 1,
+      endLineNumber: endLine,
+      endColumn: 1
+    })
+  }, [ideActiveEditHighlight, mountedEditor, relativePath])
+
+  useEffect(() => {
     const completionOwner = completionOwnerRef.current
     return () => {
       if (completionModelRef.current) {
@@ -96,6 +150,8 @@ export function useMonacoEditorDecorations(params: {
       markdownDocLinkDecorationsRef.current = null
       conflictDecorationsRef.current?.clear()
       conflictDecorationsRef.current = null
+      ideEditDecorationsRef.current?.clear()
+      ideEditDecorationsRef.current = null
     }
   }, [])
 

@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { cn } from '@/lib/class-names'
-import { CircleCheck, Copy, Crosshair, Send, Trash2 } from 'lucide-react'
+import { CircleCheck, Copy, Crosshair, Send, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -79,7 +79,7 @@ export function BrowserPageChromeBanners({
             className="shrink-0 text-muted-foreground/60 hover:text-foreground"
             aria-label={t('auto.components.browser.pane.BrowserPane.2fdca7df09', 'Dismiss')}
           >
-            ✕
+            <X className="size-3.5" />
           </button>
         </div>
       ) : null}

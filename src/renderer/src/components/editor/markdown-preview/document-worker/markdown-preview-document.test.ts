@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Nodes, RootContent } from 'hast'
+import type { Element, Nodes, RootContent } from 'hast'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Markdown from 'react-markdown'
@@ -24,6 +24,10 @@ import {
 
 function elements(node: Nodes): Nodes[] {
   return [node, ...('children' in node ? node.children.flatMap(elements) : [])]
+}
+
+function isElement(node: Nodes): node is Element {
+  return node.type === 'element'
 }
 
 describe('large Markdown preview documents', () => {
@@ -105,6 +109,46 @@ describe('large Markdown preview documents', () => {
     expect(nodes.find((node) => node.type === 'element' && node.tagName === 'img')).toMatchObject({
       properties: {}
     })
+  })
+
+  it('annotates each preview block with its own text direction', () => {
+    const content = [
+      '# الحقوق والإسناد',
+      '',
+      'السلام عليكم، هذا مشروع Code Nexus',
+      '',
+      'This is my Code Nexus project',
+      '',
+      'شغّل `pnpm tc` من `src/app.ts` الآن.',
+      '',
+      '- عنصر عربي',
+      '- English item',
+      '',
+      '| العنصر | Details |',
+      '| --- | --- |',
+      '| المشروع | Code Nexus |',
+      '',
+      '```bash',
+      'npm run build',
+      '```'
+    ].join('\n')
+    const { tree } = parseMarkdownPreviewDocument(content)
+    const rendered = tree.children.map((node, index) => renderMarkdownPreviewBlock(node, index))
+    const allElements = () => rendered.flatMap((block) => elements(block.tree)).filter(isElement)
+    const find = (tagName: string) => allElements().find((node) => node.tagName === tagName)
+
+    expect(find('h1')?.properties.dir).toBe('rtl')
+    const paragraphs = allElements().filter((node) => node.tagName === 'p')
+    expect(paragraphs.map((node) => node.properties?.dir)).toEqual(['rtl', 'ltr', 'rtl'])
+    expect(find('ul')?.properties.dir).toBe('rtl')
+    expect(find('table')?.properties.dir).toBe('rtl')
+    expect(find('pre')?.properties.dir).toBe('ltr')
+    const inlineCode = allElements().find(
+      (node) =>
+        node.tagName === 'code' &&
+        node.children.some((child) => child.type === 'text' && child.value === 'pnpm tc')
+    )
+    expect(inlineCode?.properties.dir).toBe('auto')
   })
 
   it('keeps code searchable when syntax expansion alone exceeds the node budget', async () => {

@@ -1,0 +1,85 @@
+import type {
+  IdeActivityEvent,
+  IdeChatMessage,
+  IdeCommandExecutionRecord,
+  IdeConversation,
+  IdePermissionRequest,
+  IdeRunStatus,
+  IdeTaskPlan
+} from './ide-agent-types'
+
+export type IdeProviderModelOption = {
+  id: string
+  label: string
+  isDefault?: boolean
+}
+
+export type IdeProviderAgentOption = {
+  id: string
+  label: string
+  binary: string
+  available: boolean
+  defaultModelId: string
+  models: IdeProviderModelOption[]
+  unavailableReason?: string
+}
+
+export type IdeEditorHighlightTarget = {
+  relativePath: string
+  startLine: number
+  endLine: number
+  label: string
+  updatedAt: number
+}
+
+export type IdeAgentStreamEvent =
+  | { type: 'conversation_updated'; conversation: IdeConversation }
+  | { type: 'message_delta'; conversationId: string; messageId: string; text: string }
+  | { type: 'message_complete'; conversationId: string; message: IdeChatMessage }
+  | { type: 'activity'; conversationId: string; event: IdeActivityEvent }
+  | { type: 'plan_proposed'; conversationId: string; plan: IdeTaskPlan }
+  | { type: 'permission_requested'; conversationId: string; permission: IdePermissionRequest }
+  | {
+      type: 'editor_file_opened'
+      conversationId: string
+      runId: string
+      relativePath: string
+      reason: string
+    }
+  | {
+      type: 'editor_edit_chunk'
+      conversationId: string
+      runId: string
+      relativePath: string
+      startLine: number
+      endLine: number
+      chunkIndex: number
+      totalChunks: number
+      label: string
+    }
+  | {
+      type: 'file_created' | 'file_modified' | 'file_deleted'
+      conversationId: string
+      runId: string
+      relativePath: string
+    }
+  | {
+      type: 'command_output'
+      conversationId: string
+      commandId: string
+      stream: 'stdout' | 'stderr'
+      chunk: string
+    }
+  | {
+      type: 'command_done'
+      conversationId: string
+      execution: IdeCommandExecutionRecord
+    }
+  | {
+      type: 'run_status'
+      conversationId: string
+      runId: string | null
+      status: IdeRunStatus
+      detail?: string
+    }
+

@@ -1268,8 +1268,31 @@ html.native-shell .app-layout {
 }
 
 .titlebar-mode-entry {
-  margin-left: auto;
   color: var(--muted-foreground);
+}
+
+.titlebar-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-mode-switch .titlebar-mode-entry {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.titlebar-mode-entry.is-active {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
 }
 
 .titlebar-mode-entry:hover:not(:disabled) {
@@ -2844,6 +2867,19 @@ html.native-shell .app-layout {
   font-weight: 600;
   font-style: normal;
   opacity: 0.92;
+}
+
+.monaco-editor .orca-ide-agent-edit-line {
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+
+.monaco-editor .orca-ide-agent-edit-gutter {
+  width: 3px !important;
+  margin-left: 2px;
+  background: var(--foreground);
+  opacity: 0.65;
+  border-radius: 999px;
 }
 
 /* Compact Monaco tooltip wrappers overlap find buttons, causing mouseleave/dispose/mouseover flicker.

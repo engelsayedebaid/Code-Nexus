@@ -127,6 +127,7 @@ export default function Landing(): React.JSX.Element {
           <div className="rounded-2xl border border-border bg-card shadow-sm transition-colors focus-within:border-ring/50">
             <textarea
               ref={textareaRef}
+              dir="auto"
               value={prompt}
               disabled={submitting}
               onChange={(event) => setPrompt(event.target.value)}

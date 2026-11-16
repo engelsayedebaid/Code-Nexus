@@ -589,7 +589,7 @@
 
 .rich-markdown-editor ul,
 .rich-markdown-editor ol {
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 
 .rich-markdown-editor ul {
@@ -610,14 +610,14 @@
 }
 
 .rich-markdown-editor ul[data-type='taskList'] {
-  padding-left: 0;
+  padding-inline-start: 0;
   list-style: none;
 }
 
 /* Why: nested task lists inside a task item need left padding so they indent
    under the parent checkbox, matching how nested bullet/ordered lists look. */
 .rich-markdown-editor ul[data-type='taskList'] ul[data-type='taskList'] {
-  padding-left: 0.75em;
+  padding-inline-start: 0.75em;
 }
 
 .rich-markdown-editor ul[data-type='taskList'] > li {
@@ -656,7 +656,7 @@
 .rich-markdown-editor ul[data-type='taskList'] > li > label input[type='checkbox']:checked::after {
   content: '';
   position: absolute;
-  left: 4px;
+  inset-inline-start: 4px;
   top: 1px;
   width: 5px;
   height: 9px;
@@ -686,7 +686,7 @@
 
 .rich-markdown-editor details.orca-details,
 .rich-markdown-editor .orca-details[data-type='details'] {
-  padding-left: 0.75em;
+  padding-inline-start: 0.75em;
 }
 
 .rich-markdown-editor details.orca-details > summary,
@@ -706,13 +706,13 @@
 
 .rich-markdown-editor .orca-details[data-type='details'] {
   position: relative;
-  padding-left: 1.65em;
+  padding-inline-start: 1.65em;
 }
 
 .rich-markdown-editor .orca-details[data-type='details'] > button {
   position: absolute;
   top: 0;
-  left: 0.15em;
+  inset-inline-start: 0.15em;
   display: flex;
   width: 1.2em;
   height: 1.6em;
@@ -738,7 +738,7 @@
 
 .rich-markdown-editor details.orca-details > div[data-type='detailsContent'],
 .rich-markdown-editor .orca-details[data-type='details'] div[data-type='detailsContent'] {
-  padding-left: 0.15em;
+  padding-inline-start: 0.15em;
 }
 
 .rich-markdown-editor details.orca-details[data-orca-toggle='heading-1'] > summary,
@@ -785,8 +785,9 @@
 
 .rich-markdown-editor blockquote {
   padding: 0.5em 1em;
-  border-left: 3px solid var(--border);
-  border-radius: 0 6px 6px 0;
+  border-inline-start: 3px solid var(--border);
+  border-start-start-radius: 6px;
+  border-end-start-radius: 6px;
   color: var(--muted-foreground);
   background: color-mix(in srgb, var(--foreground) 2%, transparent);
 }
@@ -803,7 +804,7 @@
 .rich-markdown-editor td {
   padding: 8px 14px;
   border: 1px solid var(--border);
-  text-align: left;
+  text-align: start;
   vertical-align: top;
   overflow-wrap: break-word;
 }
@@ -1559,4 +1560,26 @@
 
 .rich-markdown-link-input::placeholder {
   color: var(--muted-foreground);
+}
+
+/* Bidirectional prose: dir attributes come from rich-markdown-direction decorations. */
+.rich-markdown-editor [dir='rtl'] {
+  text-align: right;
+}
+
+.rich-markdown-editor [dir='ltr'] {
+  text-align: left;
+}
+
+.rich-markdown-editor code,
+.rich-markdown-editor kbd,
+.rich-markdown-editor samp {
+  unicode-bidi: isolate;
+}
+
+.rich-markdown-editor pre,
+.rich-markdown-editor pre code {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
 }

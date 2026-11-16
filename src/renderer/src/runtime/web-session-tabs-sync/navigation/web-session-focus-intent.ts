@@ -76,8 +76,14 @@ export function resolveWebSessionVisibleTabId(
     const tabId = state.activeTabIdByWorktree?.[worktreeId]
     return tabId && tabs.some((tab) => tab.id === tabId) ? tabId : null
   }
-  // Structured chat lacks a per-worktree active-entity map; the lookup below would miss its sole tab.
   if (currentType === 'agent-session') {
+    const rememberedTabId = state.activeTabIdByWorktree?.[worktreeId]
+    if (
+      rememberedTabId &&
+      tabs.some((tab) => tab.id === rememberedTabId && tab.contentType === 'agent-session')
+    ) {
+      return rememberedTabId
+    }
     return tabs.find((tab) => tab.contentType === 'agent-session')?.id ?? null
   }
   const entityId =

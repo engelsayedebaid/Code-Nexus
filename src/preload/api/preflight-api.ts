@@ -66,4 +66,5 @@ export type PreflightApi = {
     gitBashAvailable: boolean
     hostPlatform: NodeJS.Platform | null
   }>
+  findCommandsOnPath?: (args: { commands: string[] }) => Promise<string[]>
 }

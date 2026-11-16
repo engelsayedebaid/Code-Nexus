@@ -1,5 +1,5 @@
 import React from 'react'
-import { Ellipsis, ListCollapse, Loader2, RefreshCw } from 'lucide-react'
+import { Ellipsis, FilePlus, FolderPlus, ListCollapse, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -29,6 +29,9 @@ type FileExplorerToolbarProps = {
   canRefresh: boolean
   canCollapseAll: boolean
   onCollapseAll: () => void
+  canCreate: boolean
+  onCreateFile: () => void
+  onCreateFolder: () => void
   showGitIgnoredFilesToggle: boolean
   showGitIgnoredFiles: boolean
   onToggleGitIgnoredFiles: () => void
@@ -57,6 +60,9 @@ export function FileExplorerToolbar({
   canRefresh,
   canCollapseAll,
   onCollapseAll,
+  canCreate,
+  onCreateFile,
+  onCreateFolder,
   showGitIgnoredFilesToggle,
   showGitIgnoredFiles,
   onToggleGitIgnoredFiles,
@@ -72,6 +78,45 @@ export function FileExplorerToolbar({
       >
         {repoName}
       </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={t('auto.components.right.sidebar.FileExplorerToolbar.newFile', 'New File')}
+            disabled={!canCreate}
+            onClick={onCreateFile}
+          >
+            <FilePlus className="size-3" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={4}>
+          {t('auto.components.right.sidebar.FileExplorerToolbar.newFile', 'New File')}
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={t(
+              'auto.components.right.sidebar.FileExplorerToolbar.newFolder',
+              'New Folder'
+            )}
+            disabled={!canCreate}
+            onClick={onCreateFolder}
+          >
+            <FolderPlus className="size-3" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={4}>
+          {t('auto.components.right.sidebar.FileExplorerToolbar.newFolder', 'New Folder')}
+        </TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button

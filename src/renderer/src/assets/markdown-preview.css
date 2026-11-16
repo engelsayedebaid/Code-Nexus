@@ -208,7 +208,7 @@
   color: inherit;
   font: inherit;
   line-height: inherit;
-  text-align: left;
+  text-align: start;
 }
 
 .markdown-toc-title {
@@ -512,14 +512,14 @@
 
 .markdown-body details.orca-details {
   margin: 0.85em 0;
-  padding-left: 0.75em;
+  padding-inline-start: 0.75em;
 }
 
 .markdown-body details.orca-details > summary {
   position: relative;
   list-style: none;
   min-height: 1.6em;
-  padding-left: 1.35em;
+  padding-inline-start: 1.35em;
   cursor: pointer;
   font-weight: 600;
   line-height: 1.35;
@@ -528,7 +528,7 @@
 .markdown-body details.orca-details > summary::before {
   position: absolute;
   top: 0.12em;
-  left: 0;
+  inset-inline-start: 0;
   color: var(--muted-foreground);
   content: '\203A';
   font-size: 1.25em;
@@ -574,7 +574,7 @@
 }
 
 .markdown-body details.orca-details > :not(summary) {
-  margin-left: 0.15em;
+  margin-inline-start: 0.15em;
 }
 
 /* Use a link hue; --primary is near body black/white. */
@@ -728,7 +728,7 @@
 .markdown-body ul,
 .markdown-body ol {
   margin: 0.75em 0;
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 
 /* Restore native markdown list markers removed by the navigation reset; scope to preview. */
@@ -762,7 +762,7 @@
   appearance: none;
   width: 16px;
   height: 16px;
-  margin-right: 0.5em;
+  margin-inline-end: 0.5em;
   border: 1.5px solid color-mix(in srgb, var(--foreground) 55%, transparent);
   border-radius: 4px;
   background: transparent;
@@ -779,7 +779,7 @@
 .markdown-body li > input[type='checkbox']:checked::after {
   content: '';
   position: absolute;
-  left: 4px;
+  inset-inline-start: 4px;
   top: 1px;
   width: 5px;
   height: 9px;
@@ -792,8 +792,9 @@
 .markdown-body blockquote {
   margin: 0.75em 0;
   padding: 0.5em 1em;
-  border-left: 3px solid var(--border);
-  border-radius: 0 6px 6px 0;
+  border-inline-start: 3px solid var(--border);
+  border-start-end-radius: 6px;
+  border-end-end-radius: 6px;
 }
 
 .markdown-dark .markdown-body blockquote {
@@ -810,8 +811,8 @@
 .markdown-body [data-callout] {
   margin: 0.75em 0;
   padding: 0.25em 1em;
-  border-left-width: 3px;
-  border-left-style: solid;
+  border-inline-start-width: 3px;
+  border-inline-start-style: solid;
 }
 
 .markdown-body table {
@@ -825,6 +826,41 @@
 .markdown-body td {
   padding: 8px 14px;
   border: 1px solid var(--border);
+  text-align: start;
+}
+
+/* Author alignment (`:---`, `:---:`, `---:`) wins over automatic direction. */
+.markdown-body th[align='left'],
+.markdown-body td[align='left'] {
+  text-align: left;
+}
+.markdown-body th[align='center'],
+.markdown-body td[align='center'] {
+  text-align: center;
+}
+.markdown-body th[align='right'],
+.markdown-body td[align='right'] {
+  text-align: right;
+}
+
+/* Each block aligns the way its own script reads; dir comes from rehypeMarkdownDirection. */
+.markdown-body
+  :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt, figcaption, summary)[dir='rtl'] {
+  text-align: right;
+}
+.markdown-body
+  :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt, figcaption, summary)[dir='ltr'] {
+  text-align: left;
+}
+
+/* Inline code, paths, URLs, and hashes stay one unit inside Arabic prose. */
+.markdown-body :is(a, code, kbd, samp, pre, bdi) {
+  unicode-bidi: isolate;
+}
+
+/* Code blocks and terminal output are always left-to-right, even inside RTL prose. */
+.markdown-body pre {
+  direction: ltr;
   text-align: left;
 }
 

@@ -17,6 +17,7 @@ export type AppChromeLayout = ReturnType<typeof useAppChromeLayout>
 
 /** Derive titlebar, tab-strip ownership and surface mount decisions from store state. */
 export function useAppChromeLayout() {
+  const appMode = useAppStore((s) => s.appMode)
   const activeView = useAppStore((s) => s.activeView)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
@@ -65,7 +66,9 @@ export function useAppChromeLayout() {
     activeView === 'terminal' && hasActiveWorktree && !creationLayoutActive
   // Activity/Space own full pages and hide the workspace sidebar.
   const showSidebar =
-    activeView !== 'settings' && activeView !== 'activity' && activeView !== 'space'
+    appMode === 'ide'
+      ? activeView === 'terminal' && hasActiveWorktree
+      : activeView !== 'settings' && activeView !== 'activity' && activeView !== 'space'
   // Tasks/Landing keep sidebar-width chrome when open; creation suppresses stacked chrome.
   const stackedSidebarOpen =
     !workspaceChromeActive && !creationLayoutActive && showSidebar && sidebarOpen
@@ -109,6 +112,7 @@ export function useAppChromeLayout() {
   ])
 
   return {
+    appMode,
     activeView,
     activePendingCreationId,
     activeTabCanExpand,

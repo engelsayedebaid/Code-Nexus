@@ -317,7 +317,7 @@ export default function TabGroupPanel({
                 groupId={groupId}
                 isFocused={isFocused}
               />
-              {hasCustomTitleBar && (!hasSplitGroups || touchesRightEdge) ? (
+              {hasCustomTitleBar && (!hasSplitGroups || reserveClosedExplorerToggleSpace) ? (
                 <TitlebarIdeModeButton />
               ) : null}
               {hasSplitGroups ? (

@@ -103,8 +103,22 @@ export function createWorkspaceTerminalHydrationActions(
         const restoredActiveTabId = session.activeTabId
           ? (canonicalTabIdBySubsumedTabId.get(session.activeTabId) ?? session.activeTabId)
           : null
+        const activeTabIdByWorktree = restoreActiveTabIdByWorktree({
+          session,
+          validWorktreeIds,
+          validTabIds,
+          canonicalTabIdBySubsumedTabId,
+          tabsByWorktree,
+          activeWorktreeId,
+          activeTabId: restoredActiveTabId ?? null
+        })
         const activeTabId =
-          restoredActiveTabId && validTabIds.has(restoredActiveTabId) ? restoredActiveTabId : null
+          restoredActiveTabId &&
+          (validTabIds.has(restoredActiveTabId) ||
+            (activeWorktreeId !== null &&
+              activeTabIdByWorktree[activeWorktreeId] === restoredActiveTabId))
+            ? restoredActiveTabId
+            : null
         const activeRepoId =
           session.activeRepoId &&
           runtimeSessionPlaceholders.repos.some((repo) => repo.id === session.activeRepoId)
@@ -122,15 +136,6 @@ export function createWorkspaceTerminalHydrationActions(
           validTabIds,
           validWorktreeIds,
           worktreesByRepo: runtimeSessionPlaceholders.worktreesByRepo
-        })
-        const activeTabIdByWorktree = restoreActiveTabIdByWorktree({
-          session,
-          validWorktreeIds,
-          validTabIds,
-          canonicalTabIdBySubsumedTabId,
-          tabsByWorktree,
-          activeWorktreeId,
-          activeTabId
         })
         const worktreesByRepo = addHydratedSshWorktreePlaceholders(
           runtimeSessionPlaceholders.repos,

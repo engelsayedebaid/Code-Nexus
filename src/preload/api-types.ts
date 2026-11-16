@@ -39,6 +39,7 @@ import type { JiraApi } from './api/jira-api'
 import type { LinearApi } from './api/linear-api'
 import type { MobileApi } from './api/mobile-api'
 import type { NativeChatApi } from './api/native-chat-api'
+import type { ChatConversationsApi } from './api/chat-conversations-api'
 import type { OnboardingApi, StarNagApi } from './api/onboarding-api'
 import type { OrcaProfileApi } from './api/orca-profile-api'
 import type {
@@ -51,6 +52,7 @@ import type { PetApi } from './api/pet-api'
 import type { AppIconApi } from './api/app-icon-api'
 import type { BrowserPasswordsApi } from './api/browser-passwords-api'
 import type { PluginsApi } from './api/plugin-host-api'
+import type { OpenVsxApi } from './api/openvsx-api'
 import type { PreflightApi } from './api/preflight-api'
 import type { PtyApi } from './api/pty-api'
 import type { ProjectGroupsApi, ProjectsApi, RepositoryApi } from './api/repository-api'
@@ -146,6 +148,7 @@ export type PreloadApi = {
   museUsage: MuseUsageApi
   aiVault: AiVaultApi
   nativeChat: NativeChatApi
+  chatConversations: ChatConversationsApi
   fs: FilesystemApi['fs']
   git: Merged<GitInspectionApi & GitOperationApi>
   ui: Merged<UiCommandEventApi & UiWindowApi>
@@ -174,11 +177,13 @@ export type PreloadApi = {
   pwsh: RuntimeApi['pwsh']
   gitBash: RuntimeApi['gitBash']
   plugins: PluginsApi
+  openVsx?: OpenVsxApi
   agentStatus: AgentStatusApi
   mobile: MobileApi
   speech: SpeechApi
 }
 
+export type { OpenVsxApi } from './api/openvsx-api'
 export type {
   ClaudeUsageApi,
   CodexUsageApi,
@@ -194,6 +199,7 @@ export type {
   DetectedBrowserProfileInfo
 } from './api/browser/browser-api'
 export type { EmulatorApi } from './api/emulator-api'
+export type { ChatConversationsApi } from './api/chat-conversations-api'
 export type { ExportApi } from './api/filesystem-api'
 export type {
   NativeChatApi,

@@ -23,6 +23,14 @@ export function createUiAgentActions(
 ): Pick<
   UISlice,
   | 'sidebarOpen'
+  | 'appMode'
+  | 'setAppMode'
+  | 'ideSidebarView'
+  | 'setIdeSidebarView'
+  | 'ideFollowAgent'
+  | 'setIdeFollowAgent'
+  | 'ideActiveEditHighlight'
+  | 'setIdeActiveEditHighlight'
   | 'sidebarWidth'
   | 'toggleSidebar'
   | 'setSidebarOpen'
@@ -44,6 +52,14 @@ export function createUiAgentActions(
 > {
   return {
     ...createUiActivityActions(set, get),
+    appMode: 'command',
+    setAppMode: (mode) => set({ appMode: mode }),
+    ideSidebarView: 'ai-chat',
+    setIdeSidebarView: (view) => set({ ideSidebarView: view }),
+    ideFollowAgent: true,
+    setIdeFollowAgent: (follow) => set({ ideFollowAgent: follow }),
+    ideActiveEditHighlight: null,
+    setIdeActiveEditHighlight: (target) => set({ ideActiveEditHighlight: target }),
     sidebarOpen: true,
     sidebarWidth: 280,
     toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),

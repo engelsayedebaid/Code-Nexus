@@ -38,6 +38,7 @@ import { RichMarkdownCodeBlock } from '../code-blocks/RichMarkdownCodeBlock'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { positionStableNodeViewUpdate } from './position-stable-node-view-update'
 import { DragSelectionGuard } from './drag-selection-guard'
+import { RichMarkdownDirection } from './rich-markdown-direction'
 import { createRichMarkdownAnnotationHighlightExtension } from '../review/rich-markdown-annotation-highlight'
 import type { RichMarkdownEditorCodec } from '../document/rich-markdown-source-transport'
 import { createRichMarkdownHtmlSuperscriptLink } from '../citations/rich-markdown-html-superscript-link'
@@ -296,6 +297,7 @@ export function createRichMarkdownExtensions({
     createRawMarkdownHtmlBlock(codec.transport),
     createMarkdownDocLink(codec.transport),
     DragSelectionGuard,
+    RichMarkdownDirection,
     createRichMarkdownExtension(codec, htmlSuperscriptLinks).configure({
       marked: codec.marked,
       markedOptions: {
@@ -307,10 +309,7 @@ export function createRichMarkdownExtensions({
 
   if (includePlaceholder) {
     extensions.push(
-      Placeholder.configure({
-        includeChildren: true,
-        placeholder: getRichMarkdownPlaceholder
-      })
+      Placeholder.configure({ includeChildren: true, placeholder: getRichMarkdownPlaceholder })
     )
   }
 

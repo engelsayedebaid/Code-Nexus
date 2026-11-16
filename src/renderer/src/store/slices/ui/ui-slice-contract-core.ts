@@ -13,7 +13,11 @@ import type { TuiAgent } from '../../../../../shared/agent-launch/catalog/tui-ag
 import type { LaunchSource } from '../../../../../shared/telemetry-events'
 import type { TaskSourceContext } from '../../../../../shared/work-items/task-source-context'
 import type { ExecutionHostId } from '../../../../../shared/execution-host'
-import type { TaskResumeState, TopLevelView } from '../../../../../shared/ui-chrome-types'
+import type { AppMode, TaskResumeState, TopLevelView } from '../../../../../shared/ui-chrome-types'
+import type {
+  IdeEditorHighlightTarget,
+  IdeRightSidebarView
+} from '../../../../../shared/ide-agent/ide-agent-types'
 
 export type PendingSidebarWorktreeReveal = {
   rowKey?: string
@@ -125,6 +129,14 @@ export type UiViewHistory =
   | 'mobile'
 
 export type UISliceCore = {
+  appMode: AppMode
+  setAppMode: (mode: AppMode) => void
+  ideSidebarView: IdeRightSidebarView
+  setIdeSidebarView: (view: IdeRightSidebarView) => void
+  ideFollowAgent: boolean
+  setIdeFollowAgent: (follow: boolean) => void
+  ideActiveEditHighlight: IdeEditorHighlightTarget | null
+  setIdeActiveEditHighlight: (target: IdeEditorHighlightTarget | null) => void
   sidebarOpen: boolean
   sidebarWidth: number
   toggleSidebar: () => void

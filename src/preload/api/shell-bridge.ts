@@ -4,7 +4,9 @@ import type {
   ShellOpenExternalEditorRequest,
   ShellOpenExternalEditorResult,
   ShellOpenFileResult,
-  ShellOpenLocalPathResult
+  ShellOpenLocalPathResult,
+  ShellRunExternalTerminalRequest,
+  ShellRunExternalTerminalResult
 } from '../../shared/shell/opening/shell-open-types'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { ShellPathExistence } from '../../shared/file-access/path-existence-batch'
@@ -24,6 +26,11 @@ export const shellApi = {
     request: ShellOpenExternalEditorRequest
   ): Promise<ShellOpenExternalEditorResult> =>
     ipcRenderer.invoke('shell:openInExternalEditor', request),
+
+  runInExternalTerminal: (
+    request: ShellRunExternalTerminalRequest
+  ): Promise<ShellRunExternalTerminalResult> =>
+    ipcRenderer.invoke('shell:runInExternalTerminal', request),
 
   openUrl: (url: string): Promise<void> => ipcRenderer.invoke('shell:openUrl', url),
 

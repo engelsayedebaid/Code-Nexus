@@ -34,12 +34,7 @@ export function isChatScratchWorktreeId(worktreeId: string): boolean {
   return worktreeId.startsWith(PATH_SELECTOR_PREFIX)
 }
 
-/** Only this host's exact scratch-root/32-hex folder may answer; reject lookalike roots and symlinks. */
-export async function resolveChatScratchSelectorFolder(selector: string): Promise<string | null> {
-  if (!selector.startsWith(PATH_SELECTOR_PREFIX)) {
-    return null
-  }
-  const folder = selector.slice(PATH_SELECTOR_PREFIX.length)
+async function chatScratchFolderIfDirectory(folder: string): Promise<string | null> {
   if (dirname(folder) !== chatScratchRoot() || !SCRATCH_FOLDER_NAME.test(basename(folder))) {
     return null
   }
@@ -51,4 +46,17 @@ export async function resolveChatScratchSelectorFolder(selector: string): Promis
     }
     throw error
   }
+}
+
+/** Only this host's exact scratch-root/32-hex folder may answer; reject lookalike roots and symlinks. */
+export async function resolveChatScratchSelectorFolder(selector: string): Promise<string | null> {
+  if (!selector.startsWith(PATH_SELECTOR_PREFIX)) {
+    return null
+  }
+  return chatScratchFolderIfDirectory(selector.slice(PATH_SELECTOR_PREFIX.length))
+}
+
+/** Same validation for callers that hold the folder's absolute path instead of a `path:` selector. */
+export async function resolveChatScratchFolderPath(folder: string): Promise<string | null> {
+  return chatScratchFolderIfDirectory(folder)
 }

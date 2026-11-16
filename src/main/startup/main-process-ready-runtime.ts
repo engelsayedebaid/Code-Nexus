@@ -30,6 +30,7 @@ import {
 } from './main-process-runtime-service'
 import { initializeMainProcessAutomations } from './main-process-automations'
 import { initializeMainProcessPlugins } from './main-process-plugins'
+import { initializeMainProcessOpenVsx } from '../openvsx/open-vsx-runtime'
 import {
   collectWorktreeTrashSweepRoots,
   sweepStaleWorktreeTrash
@@ -66,6 +67,7 @@ export async function initializeReadyRuntimeServices(): Promise<void> {
   configureRuntimeServices(runtime)
   installFirstWorkRenameHookSubscription()
   await initializeMainProcessPlugins(runtime)
+  await initializeMainProcessOpenVsx(state.pluginService)
   state.starNag = new StarNagService(store, state.stats!)
   state.starNag.start()
   state.starNag.registerIpcHandlers()

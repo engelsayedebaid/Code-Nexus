@@ -1,4 +1,4 @@
-import { FileUp, FolderOpen, Loader2 } from 'lucide-react'
+import { Check, FileUp, FolderOpen, Loader2 } from 'lucide-react'
 import type { WarpThemeImportPreviewTheme } from '../../../../../../shared/terminal-themes/terminal-custom-themes'
 import { Button } from '../../../ui/button'
 import {
@@ -185,7 +185,7 @@ export function WarpThemeImportModal({
                                 : 'border-border bg-background'
                             )}
                           >
-                            {selected ? '✓' : null}
+                            {selected ? <Check className="size-3" strokeWidth={3} /> : null}
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="flex min-w-0 items-center gap-2">

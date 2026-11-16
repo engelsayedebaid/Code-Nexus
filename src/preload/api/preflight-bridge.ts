@@ -50,5 +50,7 @@ export const preflightApi = {
     pwshAvailable: boolean
     gitBashAvailable: boolean
     hostPlatform: NodeJS.Platform | null
-  }> => ipcRenderer.invoke('preflight:detectRemoteWindowsTerminalCapabilities', args)
+  }> => ipcRenderer.invoke('preflight:detectRemoteWindowsTerminalCapabilities', args),
+  findCommandsOnPath: (args: { commands: string[] }): Promise<string[]> =>
+    ipcRenderer.invoke('preflight:findCommandsOnPath', args)
 } satisfies PreloadApi['preflight']

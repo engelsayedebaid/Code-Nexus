@@ -21,6 +21,8 @@ import { getPreflightWslTarget } from './preflight-runtime-target'
 import { runAsWslExecUserAct } from '../wsl/discovery/wsl-background-exec-gate'
 import { deferRefusedPreflight } from './preflight-wsl-refusal-retry'
 import { agentCommandOverrideDetectionOptions } from '../preflight/installed-agent-detection'
+import { hydrateShellPathForAgentDetection } from './command-path/agent-detection-shell-path'
+import { findCommandsOnLocalPath } from './command-path/command-path-resolver'
 
 type AgentDetectionRequest = PreflightRuntimeContext & { enabledOnly?: boolean }
 /** Set by a user act (window focus, a click, opening a picker): it may start its WSL distro. */
@@ -96,6 +98,26 @@ export function registerPreflightHandlers(store?: Pick<Store, 'getSettings'>): v
     'preflight:detectRemoteWindowsTerminalCapabilities',
     async (_event, args: { connectionId: string }): Promise<RemoteWindowsTerminalCapabilities> => {
       return detectRemoteWindowsTerminalCapabilities(args)
+    }
+  )
+
+  ipcMain.handle(
+    'preflight:findCommandsOnPath',
+    async (_event, args: { commands: string[] }): Promise<string[]> => {
+      const commands = (args?.commands ?? [])
+        .map((cmd) => cmd.trim())
+        .filter((cmd) => cmd.length > 0 && cmd.length <= 128)
+        .slice(0, 16)
+      if (commands.length === 0) {
+        return []
+      }
+      const initialFound = await findCommandsOnLocalPath(commands)
+      if (initialFound.size > 0) {
+        return [...initialFound]
+      }
+      await hydrateShellPathForAgentDetection()
+      const hydratedFound = await findCommandsOnLocalPath(commands)
+      return [...hydratedFound]
     }
   )
 }

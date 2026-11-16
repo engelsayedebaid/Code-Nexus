@@ -30,6 +30,7 @@ import { useMonacoEditorMount } from './use-monaco-editor-mount'
 import { snapshotMonacoViewState } from './monaco-view-state-persistence'
 import { MonacoMarkdownAnnotationOverlay } from './markdown-source-tools/monaco/MonacoMarkdownAnnotationOverlay'
 import { usePluginSyntaxLanguage } from './use-plugin-syntax-language'
+import { useOpenVsxSnippetsLanguage } from '@/lib/monaco-languages/openvsx-snippets-runtime'
 import {
   PLUGIN_SYNTAX_EDITOR_OPTIONS,
   applyModelLanguage
@@ -92,6 +93,7 @@ export default function MonacoEditor({
   const [mountedEditor, setMountedEditor] = useState<editor.IStandaloneCodeEditor | null>(null)
   const [autoHeightContentHeight, setAutoHeightContentHeight] = useState<number | null>(null)
   const language = usePluginSyntaxLanguage(filePath, coreLanguage)
+  useOpenVsxSnippetsLanguage(language)
   const languageRef = useRef(language)
   languageRef.current = language
   useEffect(
@@ -204,6 +206,7 @@ export default function MonacoEditor({
     mountedEditor,
     content,
     language,
+    relativePath,
     markdownDocuments,
     conflictDecorationsEnabled
   })

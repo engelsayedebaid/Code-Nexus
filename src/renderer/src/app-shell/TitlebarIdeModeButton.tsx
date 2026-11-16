@@ -1,25 +1,24 @@
-import { ExternalLink } from 'lucide-react'
 import { useTranslate } from '@/i18n/use-translate'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useAppStore } from '@/store'
+import { cn } from '@/lib/class-names'
 
 export function TitlebarIdeModeButton(): React.JSX.Element {
   const t = useTranslate()
+  const appMode = useAppStore((state) => state.appMode)
+  const setAppMode = useAppStore((state) => state.setAppMode)
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <div className="titlebar-mode-switch" role="group" aria-label={t('appMode.label', 'App mode')}>
+      {(['command', 'ide'] as const).map((mode) => (
         <button
+          key={mode}
           type="button"
-          className="titlebar-mode-entry"
-          disabled
-          aria-label={t('appMode.ideUnavailable', 'IDE mode is not available yet')}
+          className={cn('titlebar-mode-entry', appMode === mode && 'is-active')}
+          aria-pressed={appMode === mode}
+          onClick={() => setAppMode(mode)}
         >
-          IDE
-          <ExternalLink className="size-3" />
+          {mode === 'command' ? t('appMode.agent', 'Agent') : t('appMode.ide', 'IDE')}
         </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={6}>
-        {t('appMode.ideUnavailable', 'IDE mode is not available yet')}
-      </TooltipContent>
-    </Tooltip>
+      ))}
+    </div>
   )
 }

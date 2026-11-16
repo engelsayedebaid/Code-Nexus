@@ -13,6 +13,7 @@ import { wslDriveUncConversionApi } from './api/wsl-drive-unc-conversion-bridge'
 import { pwshApi } from './api/pwsh-bridge'
 import { gitBashApi } from './api/git-bash-bridge'
 import { pluginsApi } from './api/plugins-bridge'
+import { openVsxApi } from './api/openvsx-bridge'
 import { reposApi } from './api/repos-bridge'
 import { projectsApi } from './api/projects-bridge'
 import { projectGroupsApi } from './api/project-groups-bridge'
@@ -76,6 +77,7 @@ import { openCodeUsageApi } from './api/open-code-usage-bridge'
 import { museUsageApi } from './api/muse-usage-bridge'
 import { aiVaultApi } from './api/ai-vault-bridge'
 import { nativeChatApi } from './api/native-chat-bridge'
+import { chatConversationsApi } from './api/chat-conversations-bridge'
 import { runtimeApi } from './api/runtime-bridge'
 import { runtimeEnvironmentsApi } from './api/runtime-environments-bridge'
 import { rateLimitsApi } from './api/rate-limits-bridge'
@@ -115,6 +117,7 @@ const api = {
   pwsh: pwshApi,
   gitBash: gitBashApi,
   plugins: pluginsApi,
+  openVsx: openVsxApi,
   repos: reposApi,
   projects: projectsApi,
   projectGroups: projectGroupsApi,
@@ -182,6 +185,7 @@ const api = {
   museUsage: museUsageApi,
   aiVault: aiVaultApi,
   nativeChat: nativeChatApi,
+  chatConversations: chatConversationsApi,
   runtime: runtimeApi,
   runtimeEnvironments: runtimeEnvironmentsApi,
   rateLimits: rateLimitsApi,

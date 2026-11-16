@@ -32,6 +32,11 @@ function setup(value = '') {
 }
 
 describe('native chat skill editor', () => {
+  it('lets the first strong character pick the composer direction', () => {
+    const { container } = setup('السلام عليكم')
+    expect(within(container).getByRole('textbox').getAttribute('dir')).toBe('auto')
+  })
+
   it('continues replacing the selected text after a composer handoff', () => {
     const inputRef = createRef<NativeChatComposerInput>()
     const text = 'Hello\nworld'

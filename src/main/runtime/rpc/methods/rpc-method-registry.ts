@@ -65,6 +65,7 @@ import { MOBILE_PROJECT_SECTIONS_METHODS } from './mobile-delivery/mobile-projec
 import { UPDATER_METHODS } from './updater/updater'
 import { AUTOMATIC_WORK_METHODS } from './automations/automatic-work'
 import { COUNCIL_METHODS } from './council/council-methods'
+import { IDE_AGENT_METHODS } from './ide-agent/ide-agent-methods'
 import { AGENT_SESSION_METHODS } from './terminal/agent-session'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-sessions/structured-agent-session'
 import { STRUCTURED_AGENT_SESSION_ATTACHMENT_METHODS } from './structured-sessions/attachments/structured-agent-session-attachments'
@@ -103,6 +104,7 @@ export const ALL_RPC_METHODS = [
   ...STRUCTURED_AGENT_SESSION_VISUAL_METHODS,
   ...STRUCTURED_AGENT_SESSION_AGENTS_METHODS,
   ...COUNCIL_METHODS,
+  ...IDE_AGENT_METHODS,
   ...MANAGED_RUNTIME_INSTALL_METHODS,
   ...AGENT_LAUNCH_METHODS,
   ...CONNECTOR_METHODS,

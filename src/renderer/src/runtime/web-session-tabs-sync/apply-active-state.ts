@@ -243,6 +243,7 @@ export function applyActiveStateUpdates(context: ActiveStateContext) {
       : null
   const nextActiveTabId = isActiveWorktree
     ? (intentMirroredAgent?.unifiedTab.id ??
+      currentVisibleStructuredTabId ??
       (snapshot.activeTabType === 'terminal'
         ? nextActiveTerminalId
         : (currentActiveTerminalStillValid ?? nextActiveTerminalId)))

@@ -35,6 +35,7 @@ import { registerEphemeralVmHandlers } from '../ephemeral-vm'
 import { registerAiVaultHandlers } from '../ai-vault/ai-vault'
 import { registerAiVaultSearchHandlers } from '../ai-vault/ai-vault-search'
 import { registerNativeChatHandlers } from '../native-chat'
+import { registerChatConversationHandlers } from '../chat-conversations'
 import { registerNotificationHandlers } from '../notifications'
 import { registerNotebookHandlers } from '../notebook'
 import { registerOnboardingHandlers } from '../onboarding'
@@ -60,6 +61,7 @@ import { registerTelemetryHandlers } from '../telemetry'
 import { registerShellHandlers } from '../shell'
 import { registerPetHandlers } from '../pets/pet'
 import { registerPluginHandlers } from '../plugins'
+import { registerOpenVsxHandlers } from '../openvsx'
 import { registerUIHandlers, setTrustedUIRendererWebContentsId } from '../ui'
 import { registerEmulatorFrameStreamHandlers } from '../emulator-frame-stream'
 import { registerEmulatorVideoStreamHandlers } from '../emulator-video-stream'
@@ -228,6 +230,7 @@ export function registerCoreHandlers(
   if (pluginService) {
     registerPluginHandlers(store, pluginService, marketplaceServices)
   }
+  registerOpenVsxHandlers()
   registerTelemetryHandlers(store)
   registerOrcaProfileHandlers(store, {
     onBeforeRelaunch: lifecycleOptions.onBeforeRelaunch,
@@ -287,6 +290,7 @@ export function registerCoreHandlers(
     deleteRuntimeAiVaultSession(getRuntimeEnvironmentRegistryRoot(), environmentId, args)
   )
   registerNativeChatHandlers()
+  registerChatConversationHandlers(runtime)
   registerClipboardHandlers(store, {
     localChatAttachmentStore: async () => {
       await ensureStructuredAgentSessionHostUnlessRefused(() =>

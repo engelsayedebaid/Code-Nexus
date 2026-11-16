@@ -74,6 +74,7 @@ function FileExplorerFiles(): React.JSX.Element {
   const activeFileId = useAppStore((s) => s.activeFileId)
   const openFiles = useAppStore((s) => s.openFiles)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
+  const appMode = useAppStore((s) => s.appMode)
   const showDotfiles = useAppStore((s) =>
     activeWorktreeId ? (s.showDotfilesByWorktree[activeWorktreeId] ?? true) : true
   )
@@ -91,7 +92,7 @@ function FileExplorerFiles(): React.JSX.Element {
   const isFilesViewActive = explorerView === 'files'
   const visibleFilesWorktreePath = getVisibleFileExplorerWorktreePath({
     explorerView,
-    rightSidebarOpen,
+    rightSidebarOpen: rightSidebarOpen || appMode === 'ide',
     worktreePath
   })
   const repoName = activeRepo?.displayName ?? (worktreePath ? basename(worktreePath) : '')
@@ -257,6 +258,13 @@ function FileExplorerFiles(): React.JSX.Element {
           canRefresh={isFilesViewActive}
           canCollapseAll={canCollapseAll}
           onCollapseAll={handleCollapseAll}
+          canCreate={isFilesViewActive}
+          onCreateFile={() =>
+            inlineInputState.startNew('file', displayRootPath ?? worktreePath, displayDepth)
+          }
+          onCreateFolder={() =>
+            inlineInputState.startNew('folder', displayRootPath ?? worktreePath, displayDepth)
+          }
           showGitIgnoredFilesToggle={activeRepoSupportsGit}
           showGitIgnoredFiles={showGitIgnoredFiles}
           onToggleGitIgnoredFiles={toggleGitIgnoredFiles}

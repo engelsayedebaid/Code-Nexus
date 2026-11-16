@@ -13,6 +13,7 @@ import { TerminalWorkbenchContainer } from '../components/TerminalWorkbenchConta
 import type { VirtualizedScrollAnchor } from '../hooks/useVirtualizedScrollAnchor'
 import { TitlebarLeftControls } from './TitlebarLeftControls'
 import { RightSidebarToggle, TitlebarMainStrip } from './TitlebarMainStrip'
+import { IdeDevelopmentSidebar } from '@/components/ide/IdeWorkspaceChrome'
 import { hasCustomTitleBar } from './app-window-chrome'
 import type { AppChromeLayout } from './use-app-chrome-layout'
 import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel'
@@ -21,6 +22,7 @@ import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel
 const MemoFloatingTerminalToggleButton = memo(FloatingTerminalToggleButton)
 
 const Landing = lazy(() => import('../components/Landing'))
+const IdeWelcome = lazy(() => import('../components/ide/IdeWelcome'))
 const WorktreeCreationPanel = lazy(
   () => import('../components/worktree-creation/WorktreeCreationPanel')
 )
@@ -50,6 +52,9 @@ function WorktreeSidebar({
   scrollRefs: WorktreeSidebarScrollRefs
 }): React.JSX.Element {
   const t = useTranslate()
+  if (layout.appMode === 'ide') {
+    return <IdeDevelopmentSidebar />
+  }
   return (
     <RecoverableRenderErrorBoundary
       boundaryId="sidebar.worktrees"
@@ -107,7 +112,11 @@ function ActivePage({ layout }: { layout: AppChromeLayout }): React.JSX.Element 
         />
       ) : null}
       {activeView === 'terminal' && !hasActiveWorktree && !creationLayoutActive ? (
-        <Landing />
+        layout.appMode === 'ide' ? (
+          <IdeWelcome />
+        ) : (
+          <Landing />
+        )
       ) : null}
     </>
   )

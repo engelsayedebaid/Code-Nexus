@@ -24,6 +24,8 @@ import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import type { ArtifactWriteRequest } from '../../../../shared/artifacts/artifacts'
 import { ArtifactPublishButton } from '@/components/artifacts/ArtifactPublishButton'
 import { editorArtifactSourceKey } from './editor-artifact-upload'
+import { IdeRunFileButton } from '@/components/ide/IdeRunFileButton'
+import { IdeLiveEditingBadge } from '@/components/ide/IdeLiveEditingBadge'
 
 const NO_CUSTOM_EDITOR_TITLES: Readonly<Record<CustomEditorToggleValue, string>> = {}
 
@@ -167,6 +169,8 @@ export function EditorPanelHeader({
           </Tooltip>
         </TooltipProvider>
       )}
+      <IdeLiveEditingBadge relativePath={activeFile.relativePath} />
+      <IdeRunFileButton file={activeFile} />
       {isSingleDiff && (
         <TooltipProvider>
           <Tooltip>

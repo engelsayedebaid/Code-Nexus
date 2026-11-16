@@ -51,6 +51,7 @@ export function useFileExplorerKeys(opts: {
   pathOwner: LocalPathOpenOwner
 }): void {
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
+  const appMode = useAppStore((s) => s.appMode)
   const rightSidebarTab = useAppStore((s) => s.rightSidebarTab)
   const rightSidebarExplorerView = useAppStore((s) => s.rightSidebarExplorerView)
   const keybindings = useAppStore((s) => s.keybindings)
@@ -139,8 +140,8 @@ export function useFileExplorerKeys(opts: {
 
     const onKeyDown = (e: KeyboardEvent): void => {
       if (
-        !rightSidebarOpen ||
-        rightSidebarTab !== 'explorer' ||
+        (!rightSidebarOpen && appMode !== 'ide') ||
+        (appMode !== 'ide' && rightSidebarTab !== 'explorer') ||
         rightSidebarExplorerView !== 'files'
       ) {
         return
@@ -285,5 +286,12 @@ export function useFileExplorerKeys(opts: {
 
     addAppKeyListener('keydown', onKeyDown)
     return () => removeAppKeyListener('keydown', onKeyDown)
-  }, [keybindings, rightSidebarExplorerView, rightSidebarOpen, rightSidebarTab, opts.containerRef])
+  }, [
+    appMode,
+    keybindings,
+    rightSidebarExplorerView,
+    rightSidebarOpen,
+    rightSidebarTab,
+    opts.containerRef
+  ])
 }

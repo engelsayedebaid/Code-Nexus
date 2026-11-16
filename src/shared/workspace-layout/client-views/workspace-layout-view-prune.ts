@@ -65,6 +65,12 @@ const browserTabIds = (workspace: WorkspaceLayout): string[] =>
   workspace.browserTabs?.map((tab) => tab.id) ?? []
 const terminalTabIds = (workspace: WorkspaceLayout): string[] =>
   terminalTabs(workspace).map((tab) => tab.entityId)
+const activeTabIdsForPrune = (workspace: WorkspaceLayout): string[] => [
+  ...terminalTabIds(workspace),
+  ...workspace.tabs
+    .filter((tab) => tab.contentType === 'agent-session')
+    .flatMap((tab) => [tab.id, tab.entityId])
+]
 
 /** Drop/reset references to removed entities in held workspaces, matching existing persisted selection fields. */
 export function pruneViewRecord(
@@ -126,7 +132,7 @@ export function pruneViewRecord(
     pruned.activeTabIdByWorktree = clearMissingIds(
       record.activeTabIdByWorktree,
       workspaces,
-      holdsId(terminalTabIds)
+      holdsId(activeTabIdsForPrune)
     )
   }
   if (record.activeFileIdByWorktree) {

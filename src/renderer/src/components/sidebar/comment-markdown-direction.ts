@@ -55,7 +55,8 @@ const BLOCK_TAGS = new Set([
   'th',
   'dd',
   'dt',
-  'figcaption'
+  'figcaption',
+  'summary'
 ])
 
 const LITERAL_TAGS = new Set(['code', 'pre', 'kbd', 'samp', 'svg', 'math', 'img'])

@@ -21,6 +21,16 @@ export function restoreActiveTabIdByWorktree({
   activeTabId: string | null
 }): Record<string, string | null> {
   const activeTabIdByWorktree: Record<string, string | null> = {}
+  const isRestorableStructuredTab = (wId: string, tabId: string): boolean => {
+    const unifiedTabs = session.unifiedTabs?.[wId]
+    if (unifiedTabs && unifiedTabs.length > 0) {
+      return unifiedTabs.some((tab) => tab.id === tabId && tab.contentType === 'agent-session')
+    }
+    return (
+      session.activeTabTypeByWorktree?.[wId] === 'agent-session' &&
+      tabId.startsWith('structured-agent-session-')
+    )
+  }
   if (session.activeTabIdByWorktree) {
     for (const [wId, tabId] of Object.entries(session.activeTabIdByWorktree)) {
       if (!validWorktreeIds.has(wId) || !tabId) {
@@ -30,11 +40,17 @@ export function restoreActiveTabIdByWorktree({
       const restored = validTabIds.has(tabId) ? tabId : canonicalTabIdBySubsumedTabId.get(tabId)
       if (restored && validTabIds.has(restored)) {
         activeTabIdByWorktree[wId] = restored
+      } else if (isRestorableStructuredTab(wId, tabId)) {
+        activeTabIdByWorktree[wId] = tabId
       }
     }
   } else {
     // Legacy sessions: best-effort derivation
-    if (activeWorktreeId && activeTabId) {
+    if (
+      activeWorktreeId &&
+      activeTabId &&
+      (validTabIds.has(activeTabId) || isRestorableStructuredTab(activeWorktreeId, activeTabId))
+    ) {
       activeTabIdByWorktree[activeWorktreeId] = activeTabId
     }
     for (const [wId, tabs] of Object.entries(tabsByWorktree)) {

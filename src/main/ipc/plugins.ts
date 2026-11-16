@@ -84,6 +84,7 @@ const logsArgsSchema = z.object({ pluginKey: z.string().min(1) })
 
 // Preserve import compatibility; runtime RPC uses the Electron-free client-list module.
 import { listPluginsForClients, readInstalledPluginManifest } from '../plugins/plugin-client-list'
+import { getOpenVsxService } from '../openvsx/open-vsx-runtime'
 
 export function registerPluginHandlers(
   store: Store,
@@ -104,15 +105,28 @@ export function registerPluginHandlers(
   }
   const { contentPacks } = pluginService
   handleContentPacks('plugins:listLanguagePacks', () => contentPacks.languagePacks.list())
-  handleContentPacks('plugins:listThemes', () => contentPacks.themes.list())
+  handleContentPacks('plugins:listThemes', () => [
+    ...contentPacks.themes.list(),
+    ...(getOpenVsxService()?.listThemes() ?? [])
+  ])
   handleContentPacks('plugins:listTerminalThemes', () => contentPacks.terminalThemes.list())
-  handleContentPacks('plugins:listIconThemes', () => contentPacks.iconThemes.list())
+  handleContentPacks('plugins:listIconThemes', () => [
+    ...contentPacks.iconThemes.list(),
+    ...(getOpenVsxService()?.listIconThemes() ?? [])
+  ])
   handleContentPacks('plugins:loadIconTheme', (id) =>
-    typeof id === 'string' ? contentPacks.iconThemes.load(id) : null
+    typeof id === 'string'
+      ? (contentPacks.iconThemes.load(id) ?? getOpenVsxService()?.loadIconTheme(id) ?? null)
+      : null
   )
-  handleContentPacks('plugins:listSyntaxes', () => contentPacks.syntaxes.list())
+  handleContentPacks('plugins:listSyntaxes', () => [
+    ...contentPacks.syntaxes.list(),
+    ...(getOpenVsxService()?.listSyntaxes() ?? [])
+  ])
   handleContentPacks('plugins:loadSyntax', (id) =>
-    typeof id === 'string' ? contentPacks.syntaxes.load(id) : null
+    typeof id === 'string'
+      ? (contentPacks.syntaxes.load(id) ?? getOpenVsxService()?.loadSyntax(id) ?? null)
+      : null
   )
   ipcMain.handle('plugins:consent', async (_event, args: unknown) => {
     await pluginService.whenReady()

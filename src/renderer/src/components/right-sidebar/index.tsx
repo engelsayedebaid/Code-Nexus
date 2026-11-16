@@ -26,9 +26,11 @@ import { useRightSidebarTabRouting } from './use-right-sidebar-tab-routing'
 import { useWindowWidth } from './use-window-width'
 import { usePluginViewCaptureStore } from '@/store/plugins/capture/plugin-view-capture'
 import { selectWorktreeCreationSurfaceShown } from '@/lib/workspace/creation/worktree-creation-surface'
+import { IdeRightSidebarWorkspace } from '@/components/ide/sidebar/IdeRightSidebarWorkspace'
 
 function RightSidebarInner(): React.JSX.Element {
   const t = useTranslate()
+  const appMode = useAppStore((s) => s.appMode)
   const contextPlugin = useActivityBarContextPlugin()
   useUiLanguageRevision()
   const rightSidebarShortcut = useShortcutLabel('sidebar.right.toggle')
@@ -104,7 +106,8 @@ function RightSidebarInner(): React.JSX.Element {
     }
   }, [focusVaultSearch])
 
-  const activityBarSideWidth = activityBarPosition === 'side' ? ACTIVITY_BAR_SIDE_WIDTH : 0
+  const showSideActivityBar = activityBarPosition === 'side' && appMode !== 'ide'
+  const activityBarSideWidth = showSideActivityBar ? ACTIVITY_BAR_SIDE_WIDTH : 0
   const windowWidth = useWindowWidth()
   const maxWidth = computeMaxRightSidebarPanelWidth(windowWidth, activityBarSideWidth)
   const renderedRightSidebarWidth = clampRightSidebarPanelWidth(
@@ -195,30 +198,47 @@ function RightSidebarInner(): React.JSX.Element {
           borderLeft: rightSidebarOpen ? '1px solid var(--border)' : 'none'
         }}
       >
-        {activityBarPosition === 'top' ? (
-          <RightSidebarTopActivityBar
-            topActivityStripRef={topActivityStripRef}
-            topActivityLayout={topActivityLayout}
-            effectiveTab={effectiveTab}
-            onSelectTab={selectActivityTab}
-            checksStatus={checksStatus}
-            closeButton={closeButton}
-            activityBarPosition={activityBarPosition}
-            onChangeActivityBarPosition={setActivityBarPosition}
-          />
+        {appMode === 'ide' ? (
+          rightSidebarOpen ? (
+            creatingWorktree ? (
+              <div className="flex flex-1 items-center justify-center px-4 text-center text-[11px] text-muted-foreground">
+                {t(
+                  'auto.components.right.sidebar.index.creatingWorkspace',
+                  'Available when the workspace is ready'
+                )}
+              </div>
+            ) : (
+              <IdeRightSidebarWorkspace closeButton={closeButton} />
+            )
+          ) : null
         ) : (
-          /* The 40px activity bar absorbs part of the 138px window-control overlay; inset the header by the remaining 98px. */
-          <div className="flex items-center justify-between h-[38px] min-h-[38px] px-3 border-b border-border/70 right-sidebar-header-side-inset right-sidebar-header-drag">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-              {visibleItems.find((item) => item.id === effectiveTab)?.title ?? ''}
-            </span>
-            <TooltipProvider>
-              <div className="flex items-center">{closeButton}</div>
-            </TooltipProvider>
-          </div>
-        )}
+          <>
+            {activityBarPosition === 'top' ? (
+              <RightSidebarTopActivityBar
+                topActivityStripRef={topActivityStripRef}
+                topActivityLayout={topActivityLayout}
+                effectiveTab={effectiveTab}
+                onSelectTab={selectActivityTab}
+                checksStatus={checksStatus}
+                closeButton={closeButton}
+                activityBarPosition={activityBarPosition}
+                onChangeActivityBarPosition={setActivityBarPosition}
+              />
+            ) : (
+              /* The 40px activity bar absorbs part of the 138px window-control overlay; inset the header by the remaining 98px. */
+              <div className="flex items-center justify-between h-[38px] min-h-[38px] px-3 border-b border-border/70 right-sidebar-header-side-inset right-sidebar-header-drag">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                  {visibleItems.find((item) => item.id === effectiveTab)?.title ?? ''}
+                </span>
+                <TooltipProvider>
+                  <div className="flex items-center">{closeButton}</div>
+                </TooltipProvider>
+              </div>
+            )}
 
-        {panelContent}
+            {panelContent}
+          </>
+        )}
 
         <div
           className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-ring/20 active:bg-ring/30 transition-colors z-10"
@@ -226,7 +246,7 @@ function RightSidebarInner(): React.JSX.Element {
         />
       </div>
 
-      {activityBarPosition === 'side' && (
+      {showSideActivityBar && (
         <ContextMenu>
           <ContextMenuTrigger
             asChild
