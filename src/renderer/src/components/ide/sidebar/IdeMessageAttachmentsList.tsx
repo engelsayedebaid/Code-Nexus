@@ -45,14 +45,12 @@ export function IdeMessageAttachmentsList({
                 data-testid="ide-pasted-attachment-card"
                 onClick={() => setPreviewAttachment(att)}
                 className={cn(
-                  'inline-flex max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors hover:bg-muted/70',
-                  missing
-                    ? 'border-amber-500/40 bg-amber-500/10'
-                    : 'border-border/70 bg-background/80'
+                  'inline-flex max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-start transition-colors hover:bg-muted/70',
+                  missing ? 'border-border bg-muted/40' : 'border-border/70 bg-background/80'
                 )}
               >
                 {missing ? (
-                  <AlertCircle className="size-3.5 shrink-0 text-amber-500" />
+                  <AlertCircle className="size-3.5 shrink-0 text-muted-foreground" />
                 ) : (
                   <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                 )}
@@ -60,14 +58,7 @@ export function IdeMessageAttachmentsList({
                   <span className="block truncate text-xs font-medium text-foreground">
                     {displayName}
                   </span>
-                  <span
-                    className={cn(
-                      'block truncate text-[11px]',
-                      missing ? 'text-amber-500' : 'text-muted-foreground'
-                    )}
-                  >
-                    {subtitle}
-                  </span>
+                  <span className="block truncate text-2xs text-muted-foreground">{subtitle}</span>
                 </span>
               </button>
             )
@@ -88,7 +79,7 @@ export function IdeMessageAttachmentsList({
               {att.sensitiveWarning ? (
                 <AppIcon
                   name="warning"
-                  className="size-3 text-amber-500"
+                  className="size-3 text-destructive"
                   label={sensitiveFileLabel}
                 />
               ) : null}

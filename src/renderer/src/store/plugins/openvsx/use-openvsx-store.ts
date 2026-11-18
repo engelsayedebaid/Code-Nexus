@@ -1,9 +1,13 @@
 import { create } from 'zustand'
-import type {
-  OpenVsxInstallOptions,
-  OpenVsxInstallOutcome,
-  OpenVsxInstalledExtension,
-  OpenVsxSnippetItem
+import { usePluginIconThemeStore } from '../appearance/plugin-icon-themes'
+import { usePluginThemeStore } from '../appearance/plugin-themes'
+import { usePluginSyntaxStore } from '../syntax/plugin-syntax-packs'
+import {
+  formatOpenVsxErrorMessage,
+  type OpenVsxInstallOptions,
+  type OpenVsxInstallOutcome,
+  type OpenVsxInstalledExtension,
+  type OpenVsxSnippetItem
 } from '../../../../../shared/openvsx/openvsx-types'
 
 type BusyState = 'installing' | 'uninstalling' | 'toggling'
@@ -24,6 +28,14 @@ type OpenVsxStoreState = {
 
 let listenerRegistered = false
 
+async function refreshDeclarativeExtensionStores(): Promise<void> {
+  await Promise.allSettled([
+    usePluginThemeStore.getState().fetchEntries(),
+    usePluginIconThemeStore.getState().fetchEntries(),
+    usePluginSyntaxStore.getState().fetchEntries()
+  ])
+}
+
 export function ensureOpenVsxStoreSubscribed(): void {
   if (listenerRegistered) {
     return
@@ -35,6 +47,7 @@ export function ensureOpenVsxStoreSubscribed(): void {
   listenerRegistered = true
   api.onChanged(() => {
     void useOpenVsxStore.getState().loadInstalled()
+    void refreshDeclarativeExtensionStores()
   })
 }
 
@@ -68,7 +81,7 @@ export const useOpenVsxStore = create<OpenVsxStoreState>((set, get) => ({
       set({
         loaded: true,
         loadingInstalled: false,
-        error: error instanceof Error ? error.message : String(error)
+        error: formatOpenVsxErrorMessage(error)
       })
     }
   },
@@ -87,10 +100,10 @@ export const useOpenVsxStore = create<OpenVsxStoreState>((set, get) => ({
     }))
     try {
       const outcome = await api.install(options)
-      await get().loadInstalled()
+      await Promise.all([get().loadInstalled(), refreshDeclarativeExtensionStores()])
       return outcome
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) })
+      set({ error: formatOpenVsxErrorMessage(error) })
       return null
     } finally {
       set((state) => {
@@ -114,10 +127,10 @@ export const useOpenVsxStore = create<OpenVsxStoreState>((set, get) => ({
     }))
     try {
       const removed = await api.uninstall(extensionId)
-      await get().loadInstalled()
+      await Promise.all([get().loadInstalled(), refreshDeclarativeExtensionStores()])
       return removed
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) })
+      set({ error: formatOpenVsxErrorMessage(error) })
       return false
     } finally {
       set((state) => {
@@ -141,9 +154,9 @@ export const useOpenVsxStore = create<OpenVsxStoreState>((set, get) => ({
     }))
     try {
       await api.setEnabled(extensionId, enabled)
-      await get().loadInstalled()
+      await Promise.all([get().loadInstalled(), refreshDeclarativeExtensionStores()])
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) })
+      set({ error: formatOpenVsxErrorMessage(error) })
     } finally {
       set((state) => {
         const nextBusy = { ...state.busyById }

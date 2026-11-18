@@ -15,12 +15,23 @@ import {
 } from './vsix-package-manifest'
 
 const MAX_TOKEN_COLORS = 512
+const MAX_SCOPE_ITEMS = 64
+const VALID_FONT_STYLE_WORDS = new Set(['italic', 'bold', 'underline', 'strikethrough'])
 
-type VsCodeThemeContribution = {
-  id?: unknown
-  label?: unknown
-  uiTheme?: unknown
-  path?: unknown
+function normalizeTokenFontStyle(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') {
+    return undefined
+  }
+  const tokens = raw
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token) => VALID_FONT_STYLE_WORDS.has(token))
+  return tokens.length > 0 ? Array.from(new Set(tokens)).join(' ') : undefined
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function normalizeColorHex(raw: unknown): string | undefined {
@@ -82,8 +93,8 @@ async function loadThemeDocumentRecursive(
     }
   }
 
-  if (parsed.colors && typeof parsed.colors === 'object' && !Array.isArray(parsed.colors)) {
-    for (const [key, value] of Object.entries(parsed.colors as Record<string, unknown>)) {
+  if (isPlainRecord(parsed.colors)) {
+    for (const [key, value] of Object.entries(parsed.colors)) {
       const color = normalizeColorHex(value)
       if (color) {
         mergedColors[key] = color
@@ -93,38 +104,37 @@ async function loadThemeDocumentRecursive(
 
   if (Array.isArray(parsed.tokenColors)) {
     for (const rawRule of parsed.tokenColors) {
-      if (!rawRule || typeof rawRule !== 'object') {
+      if (!isPlainRecord(rawRule)) {
         continue
       }
-      const rule = rawRule as { scope?: unknown; settings?: unknown }
-      if (!rule.settings || typeof rule.settings !== 'object' || Array.isArray(rule.settings)) {
+      if (!isPlainRecord(rawRule.settings)) {
         continue
       }
-      const settingsObj = rule.settings as { foreground?: unknown; fontStyle?: unknown }
-      const foreground = normalizeColorHex(settingsObj.foreground)
-      const fontStyle =
-        typeof settingsObj.fontStyle === 'string' && settingsObj.fontStyle.trim().length > 0
-          ? settingsObj.fontStyle.trim()
-          : undefined
+      const foreground = normalizeColorHex(rawRule.settings.foreground)
+      const fontStyle = normalizeTokenFontStyle(rawRule.settings.fontStyle)
       if (!foreground && !fontStyle) {
         continue
       }
-      const rawScope =
-        typeof rule.scope === 'string'
-          ? rule.scope.trim()
-          : Array.isArray(rule.scope)
-            ? rule.scope.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-            : undefined
-      if (!rawScope || (Array.isArray(rawScope) && rawScope.length === 0)) {
-        continue
+      const settings = {
+        ...(foreground ? { foreground } : {}),
+        ...(fontStyle ? { fontStyle } : {})
       }
-      mergedTokenColors.push({
-        scope: rawScope,
-        settings: {
-          ...(foreground ? { foreground } : {}),
-          ...(fontStyle ? { fontStyle } : {})
+      if (typeof rawRule.scope === 'string') {
+        const trimmedScope = rawRule.scope.trim().slice(0, 512)
+        if (trimmedScope) {
+          mergedTokenColors.push({ scope: trimmedScope, settings })
         }
-      })
+      } else if (Array.isArray(rawRule.scope)) {
+        const scopes = rawRule.scope
+          .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+          .map((item) => item.trim().slice(0, 512))
+        for (let offset = 0; offset < scopes.length; offset += MAX_SCOPE_ITEMS) {
+          const chunk = scopes.slice(offset, offset + MAX_SCOPE_ITEMS)
+          if (chunk.length > 0) {
+            mergedTokenColors.push({ scope: chunk, settings })
+          }
+        }
+      }
     }
   }
 
@@ -149,9 +159,10 @@ export async function extractVsixThemes(
   }
 
   const registrations: PluginThemeRegistration[] = []
+  const usedSlugs = new Set<string>()
   for (let index = 0; index < rawThemes.length; index += 1) {
-    const entry = rawThemes[index] as VsCodeThemeContribution
-    if (!entry || typeof entry !== 'object' || typeof entry.path !== 'string') {
+    const entry: unknown = rawThemes[index]
+    if (!isPlainRecord(entry) || typeof entry.path !== 'string') {
       continue
     }
     const fullPath = resolveContainedExtensionPath(extensionRootDir, entry.path)
@@ -171,19 +182,48 @@ export async function extractVsixThemes(
     const colors = loaded.colors
     const bg = colors['editor.background'] ?? (base === 'light' ? '#ffffff' : '#18181b')
     const fg = colors['editor.foreground'] ?? (base === 'light' ? '#18181b' : '#f4f4f5')
+    const sidebarBg = colors['sideBar.background'] ?? colors['activityBar.background'] ?? bg
+    const sidebarFg = colors['sideBar.foreground'] ?? fg
+    const widgetBg = colors['editorWidget.background'] ?? colors['dropdown.background'] ?? sidebarBg
+    const borderCol =
+      colors['panel.border'] ??
+      colors['sideBar.border'] ??
+      colors['editorGroup.border'] ??
+      colors['editorWidget.border'] ??
+      sidebarBg
     const partialTokens: Record<string, string> = {
       '--background': bg,
+      '--editor-surface': bg,
       '--foreground': fg,
-      '--sidebar': colors['sideBar.background'] ?? colors['activityBar.background'] ?? bg,
-      '--popover': colors['editorWidget.background'] ?? colors['menu.background'] ?? bg,
-      '--muted': colors['tab.inactiveBackground'] ?? colors['sideBar.background'] ?? bg,
+      '--card': widgetBg,
+      '--card-foreground': fg,
+      '--popover': colors['menu.background'] ?? widgetBg,
+      '--popover-foreground': colors['menu.foreground'] ?? fg,
+      '--sidebar': sidebarBg,
+      '--sidebar-foreground': sidebarFg,
+      '--sidebar-border': colors['sideBar.border'] ?? borderCol,
+      '--worktree-sidebar': sidebarBg,
+      '--worktree-sidebar-foreground': sidebarFg,
+      '--muted': colors['tab.inactiveBackground'] ?? sidebarBg,
       '--secondary':
-        colors['button.secondaryBackground'] ?? colors['list.inactiveSelectionBackground'] ?? bg,
-      '--accent': colors['list.hoverBackground'] ?? colors['editor.selectionBackground'] ?? bg,
+        colors['button.secondaryBackground'] ??
+        colors['list.inactiveSelectionBackground'] ??
+        widgetBg,
+      '--accent':
+        colors['list.hoverBackground'] ?? colors['list.activeSelectionBackground'] ?? widgetBg,
       '--muted-foreground':
         colors['descriptionForeground'] ?? colors['editorLineNumber.foreground'] ?? fg,
-      '--border':
-        colors['panel.border'] ?? colors['sideBar.border'] ?? colors['editorGroup.border'] ?? bg
+      '--border': borderCol,
+      '--input': colors['input.background'] ?? borderCol,
+      '--tab-bar': colors['editorGroupHeader.tabsBackground'] ?? sidebarBg,
+      '--tab-active': colors['tab.activeBackground'] ?? bg,
+      '--tab-active-foreground': colors['tab.activeForeground'] ?? fg,
+      '--tab-inactive': colors['tab.inactiveBackground'] ?? sidebarBg,
+      '--tab-inactive-foreground': colors['tab.inactiveForeground'] ?? sidebarFg
+    }
+    const activeTabIndicator = colors['tab.activeBorderTop'] ?? colors['tab.activeBorder']
+    if (activeTabIndicator) {
+      partialTokens['--tab-active-indicator'] = activeTabIndicator
     }
     if (colors['focusBorder']) {
       partialTokens['--ring'] = colors['focusBorder']
@@ -198,7 +238,8 @@ export async function extractVsixThemes(
     const label = resolveNlsString(entry.label, nls) || `Theme ${index + 1}`
     const slug = slugifyContribId(
       typeof entry.id === 'string' && entry.id.trim() ? entry.id : label,
-      `theme-${index}`
+      `theme-${index}`,
+      usedSlugs
     )
     const id: `plugin:${string}` = `plugin:${pluginKey}/${slug}`
     const tokenColors = loaded.tokenColors.slice(0, MAX_TOKEN_COLORS)
@@ -207,7 +248,7 @@ export async function extractVsixThemes(
       pluginKey,
       pluginName,
       label,
-      revision: computeRevisionHash(`${version}:${id}:${bg}:${fg}:${tokenColors.length}`),
+      revision: computeRevisionHash(`v3:${version}:${id}:${bg}:${fg}:${tokenColors.length}`),
       base,
       tokens: completePluginAppThemeTokens(partialTokens),
       ...(tokenColors.length > 0 ? { tokenColors } : {})

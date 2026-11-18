@@ -27,6 +27,7 @@ export function useFloatingWorkspacePanel() {
     recordFeatureInteractionForTour: boolean
   } | null>(null)
 
+  const appMode = useAppStore((s) => s.appMode)
   const enabled = useAppStore((s) => s.settings?.floatingTerminalEnabled === true)
   // Unhydrated null settings are not a user disable; wait for the atomic settings replacement.
   const settingsHydrated = useAppStore((s) => s.settings != null)
@@ -124,7 +125,10 @@ export function useFloatingWorkspacePanel() {
   }, [settingsHydrated, enabled, setOpenWithFocus])
 
   const shouldMountPanel = enabled && (open || visibleTabCount > 0)
-  const showToggleButton = enabled && (triggerLocation === 'floating-button' || !statusBarVisible)
+  const showToggleButton =
+    enabled &&
+    (appMode !== 'ide' || open) &&
+    (triggerLocation === 'floating-button' || !statusBarVisible)
   // Stable identity lets memoized root surfaces skip the App render each workspace switch causes.
   return useMemo(
     () => ({

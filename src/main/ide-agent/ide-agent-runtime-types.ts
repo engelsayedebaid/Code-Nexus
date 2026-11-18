@@ -17,6 +17,7 @@ import type { IdeAiClient } from './ide-ai-client'
 import type { IdeAgentStore } from './ide-agent-persistence'
 import type { IdeAttachmentStore } from './ide-attachment-store'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
+import type { AgentRunTelemetryCollector } from './harness/agent-telemetry'
 
 export type ResolveWorkspaceGateway = (worktreeSelector: string) => Promise<IdeWorkspaceGateway>
 
@@ -38,11 +39,13 @@ export type ActiveRunControl = {
   conversationId: string
   abortController: AbortController
   paused: boolean
+  statusBeforePermission?: IdeConversation['status']
   resumeResolvers: (() => void)[]
   permissionWaiters: Map<string, (approved: boolean) => void>
   worktreeSelector: string
   dirtyPaths: Set<string>
   config: RunExecutionConfig
+  telemetry?: AgentRunTelemetryCollector
 }
 
 export type IdeAppendActivityInput = {
@@ -188,7 +191,9 @@ export type IdeSendPromptInput = {
   liveEditSpeed?: IdeLiveEditSpeed
   attachments?: IdeChatAttachment[]
   activeFilePath?: string
+  openFilePaths?: string[]
   dirtyRelativePaths?: string[]
+  reuseLastUserMessage?: boolean
 }
 
 export type IdePlanDecisionInput = {
@@ -225,7 +230,7 @@ export type IdePermissionDecisionInput = {
 
 export type IdeRunControlInput = {
   conversationId: string
-  runId: string
+  runId?: string
   action: 'pause' | 'resume' | 'stop' | 'retry'
   worktreeSelector?: string
   dirtyRelativePaths?: string[]

@@ -1,16 +1,10 @@
-import { randomUUID } from 'node:crypto'
-import type {
-  IdeChatAttachment,
-  IdeChatMessage,
-  IdeConversation,
-  IdeExecutionMode,
-  IdeLiveEditSpeed
-} from '../../shared/ide-agent/ide-agent-types'
+import type { IdeChatAttachment } from '../../shared/ide-agent/ide-agent-types'
 import { runToolAssistedInspectionLoop } from './ide-agent-harness'
 import {
   buildAskPrompt,
   buildPlanPrompt,
-  isClarificationOrQuestionPrompt
+  isClarificationOrQuestionPrompt,
+  isExplicitPlanRequestPrompt
 } from './ide-agent-prompts'
 import { finalizePlannerOutput } from './ide-agent-planner-turn'
 import {
@@ -19,15 +13,14 @@ import {
   inspectWorkspaceForTurn,
   runReviewModeTurn
 } from './ide-agent-turn-helpers'
-import {
-  pickExecutionSettings,
-  type ActiveRunControl,
-  type EngineHostOps,
-  type ResolveWorkspaceGateway
-} from './ide-agent-runtime-types'
+import type { ActiveRunControl, EngineHostOps } from './ide-agent-runtime-types'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
+import { AgentRunTelemetryCollector } from './harness/agent-telemetry'
+import { extractExplicitFileMentions } from './harness/context-engine'
+import { runBoundedReadOnlySubagents } from './harness/subagent-coordinator'
 
 export { buildPlanRecord } from './ide-agent-turn-helpers'
+export { dispatchIdePrompt } from './ide-agent-prompt-dispatch'
 
 export async function runPromptLifecycle(params: {
   host: EngineHostOps
@@ -35,10 +28,26 @@ export async function runPromptLifecycle(params: {
   conversationId: string
   run: ActiveRunControl
   gateway: IdeWorkspaceGateway
-  input: { text: string; attachments?: IdeChatAttachment[]; activeFilePath?: string }
+  input: {
+    text: string
+    attachments?: IdeChatAttachment[]
+    activeFilePath?: string
+    openFilePaths?: string[]
+  }
 }): Promise<void> {
-  const { host, activeRuns, conversationId, run, gateway, input } = params
+  const { activeRuns, conversationId, run, gateway, input } = params
+  const telemetry = new AgentRunTelemetryCollector(
+    run.runId,
+    run.config.agentId,
+    run.config.modelId
+  )
+  run.telemetry = telemetry
+  const host: EngineHostOps = {
+    ...params.host,
+    aiClient: telemetry.wrapAiClient(params.host.aiClient)
+  }
   const conv = host.requireConversation(conversationId)
+
   try {
     host.setRunStatus(conv, run.runId, 'analyzing', 'Inspecting workspace context...')
     const attachments =
@@ -50,42 +59,26 @@ export async function runPromptLifecycle(params: {
       return
     }
 
-    const { snapshot, budget, activeFileContent } = await inspectWorkspaceForTurn({
-      host,
-      conv,
-      run,
-      gateway,
-      text: input.text,
-      activeFilePath: input.activeFilePath
-    })
+    const { snapshot, budget, activeFileContent, rankedSnippets, instructions, profile } =
+      await inspectWorkspaceForTurn({
+        host,
+        conv,
+        run,
+        gateway,
+        text: input.text,
+        activeFilePath: input.activeFilePath,
+        openFilePaths: input.openFilePaths,
+        attachments
+      })
     if (run.abortController.signal.aborted) {
       host.setRunStatus(conv, null, 'canceled')
       return
     }
 
-    if (run.config.mode === 'ask') {
-      await executeReadOnlyChatTurn({
-        host,
-        conv,
-        run,
-        gateway,
-        budget,
-        mode: 'ask',
-        buildPrompt: (observations) =>
-          buildAskPrompt({
-            question: input.text,
-            snapshot,
-            attachments,
-            activeFileContent,
-            history: conv.messages.slice(0, -1),
-            activePlan: conv.plans.find((p) => p.id === conv.activePlanId) ?? conv.plans.at(-1),
-            toolObservations: observations
-          })
-      })
-      return
-    }
-
-    if (run.config.mode === 'agent' && isClarificationOrQuestionPrompt(input.text)) {
+    if (
+      run.config.mode === 'ask' ||
+      (run.config.mode === 'agent' && isClarificationOrQuestionPrompt(input.text))
+    ) {
       const activePlan =
         conv.plans.find((p) => p.id === conv.activePlanId) ?? conv.plans.at(-1) ?? null
       await executeReadOnlyChatTurn({
@@ -94,17 +87,24 @@ export async function runPromptLifecycle(params: {
         run,
         gateway,
         budget,
+        profile,
         mode: 'ask',
         preserveAwaitingPlan: activePlan?.status === 'awaiting_approval',
-        buildPrompt: (observations) =>
+        buildPrompt: (observations, allowTools) =>
           buildAskPrompt({
             question: input.text,
             snapshot,
             attachments,
             activeFileContent,
+            rankedSnippets,
+            instructions,
+            profile,
             history: conv.messages.slice(0, -1),
+            conversation: conv,
             activePlan,
-            toolObservations: observations
+            toolObservations: observations,
+            allowTools,
+            onCompacted: (count) => telemetry.recordCompactedMessages(count)
           })
       })
       return
@@ -118,18 +118,54 @@ export async function runPromptLifecycle(params: {
         gateway,
         budget,
         snapshot,
+        attachments,
+        activeFileContent,
+        rankedSnippets,
+        instructions,
+        profile,
         requestText: input.text
       })
       return
     }
 
-    host.setRunStatus(conv, run.runId, 'planning', 'Generating implementation plan...')
-    if (run.config.multiAgentEnabled) {
+    const explicitPlanRequested =
+      run.config.mode === 'agent' && isExplicitPlanRequestPrompt(input.text)
+    const approvalRequired = run.config.mode === 'plan' || explicitPlanRequested
+    host.setRunStatus(
+      conv,
+      run.runId,
+      'planning',
+      approvalRequired ? 'Generating implementation plan...' : 'Preparing implementation...'
+    )
+
+    let subagentFindings = ''
+    const mentions = extractExplicitFileMentions(input.text)
+    if (run.config.multiAgentEnabled && mentions.length >= 2) {
+      const subResults = await runBoundedReadOnlySubagents({
+        host,
+        conv,
+        run,
+        gateway,
+        tasks: mentions.slice(0, 2).map((m, idx) => ({
+          id: `explorer-${idx + 1}`,
+          role: 'planner',
+          specialistTitle: `Codebase Explorer #${idx + 1}`,
+          objective: `Inspect ${m.relativePath} and its direct imports/dependents relevant to: ${input.text.slice(0, 240)}`
+        }))
+      })
+      telemetry.recordSubagentRun(subResults.length)
+      subagentFindings = subResults
+        .filter((r) => r.ok && r.findings)
+        .map((r) => `[${r.specialistTitle}]: ${r.findings}`)
+        .join('\n\n')
+    } else if (run.config.multiAgentEnabled) {
       host.appendActivity(conv, {
         runId: run.runId,
         role: 'planner',
         type: 'agent.role_started',
-        summary: 'Planner Agent drafting implementation plan',
+        summary: approvalRequired
+          ? 'Planner Agent drafting implementation plan'
+          : 'Agent preparing implementation',
         status: 'running'
       })
     }
@@ -140,17 +176,25 @@ export async function runPromptLifecycle(params: {
       run,
       gateway,
       budget,
+      profile,
       mode: 'plan',
       role: run.config.multiAgentEnabled ? 'planner' : 'orchestrator',
-      buildPrompt: (observations) =>
+      buildPrompt: (observations, allowTools) =>
         buildPlanPrompt({
           request: input.text,
           snapshot,
           attachments,
           activeFileContent,
+          rankedSnippets,
+          instructions,
+          profile,
+          subagentFindings: subagentFindings || undefined,
           history: conv.messages.slice(0, -1),
-          mode: run.config.mode === 'agent' ? 'agent' : 'plan',
-          toolObservations: observations
+          conversation: conv,
+          mode: approvalRequired ? 'plan' : 'agent',
+          toolObservations: observations,
+          allowTools,
+          onCompacted: (count) => telemetry.recordCompactedMessages(count)
         })
     })
 
@@ -176,123 +220,14 @@ export async function runPromptLifecycle(params: {
       run,
       gateway,
       requestText: input.text,
-      aiText: aiRes.text
+      aiText: aiRes.text,
+      approvalRequired
     })
   } finally {
+    telemetry.finalizeIntoConversation(conv)
+    host.saveAndPublish(conv)
     if (activeRuns.get(conversationId) === run) {
       activeRuns.delete(conversationId)
     }
   }
-}
-
-export async function dispatchIdePrompt(params: {
-  host: EngineHostOps
-  activeRuns: Map<string, ActiveRunControl>
-  resolveGateway: ResolveWorkspaceGateway
-  createRunControl: (
-    conv: IdeConversation,
-    selector: string,
-    dirtySet: Set<string>
-  ) => ActiveRunControl
-  resolveSelectionUpdate: (
-    conv: IdeConversation,
-    update: { agentId?: string; modelId?: string }
-  ) => { agentId: string; modelId: string }
-  dirtySet: Set<string>
-  conversationId: string
-  worktreeSelector: string
-  text: string
-  mode: IdeExecutionMode
-  agentId?: string
-  modelId?: string
-  multiAgentEnabled?: boolean
-  followAgent?: boolean
-  liveEditSpeed?: IdeLiveEditSpeed
-  attachments?: IdeChatAttachment[]
-  activeFilePath?: string
-}): Promise<IdeConversation> {
-  const { host, activeRuns, resolveGateway, dirtySet } = params
-  const conv = host.requireConversation(params.conversationId)
-  if (activeRuns.has(conv.id)) {
-    throw new Error('Another run is already active in this conversation. Stop or pause it first.')
-  }
-  const sel = params.resolveSelectionUpdate(conv, params)
-  conv.mode = params.mode
-  conv.agentId = sel.agentId
-  conv.modelId = sel.modelId
-  if (params.multiAgentEnabled !== undefined) {
-    conv.multiAgentEnabled = params.multiAgentEnabled
-  }
-  if (params.followAgent !== undefined) {
-    conv.followAgent = params.followAgent
-  }
-  if (params.liveEditSpeed !== undefined) {
-    conv.liveEditSpeed = params.liveEditSpeed
-  }
-  if (conv.messages.length === 0 && conv.title === 'New IDE Chat') {
-    conv.title = params.text.trim().replace(/\s+/g, ' ').slice(0, 64) || 'IDE Session'
-  }
-  const rawAttachments = params.attachments ?? []
-  const gateway = await resolveGateway(params.worktreeSelector)
-  const runControl = params.createRunControl(conv, params.worktreeSelector, dirtySet)
-  const userMessage: IdeChatMessage = {
-    id: randomUUID(),
-    conversationId: conv.id,
-    role: 'user',
-    mode: conv.mode,
-    text: params.text,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    agentId: conv.agentId,
-    modelId: conv.modelId,
-    teamMode: conv.multiAgentEnabled,
-    ...(rawAttachments.length > 0 ? { attachments: rawAttachments } : {})
-  }
-  conv.messages.push(userMessage)
-  host.saveAndPublish(conv, pickExecutionSettings(conv))
-
-  void runPromptLifecycle({
-    host,
-    activeRuns,
-    conversationId: conv.id,
-    run: runControl,
-    gateway,
-    input: params
-  }).catch((error) => {
-    if (runControl.abortController.signal.aborted) {
-      return
-    }
-    try {
-      const latest = host.store.getConversation(conv.id)
-      if (!latest) {
-        return
-      }
-      const errText = error instanceof Error ? error.message : String(error)
-      host.appendActivity(latest, {
-        runId: runControl.runId,
-        role: 'orchestrator',
-        type: 'run.failed',
-        summary: 'Run failed',
-        detail: errText,
-        status: 'error'
-      })
-      latest.messages.push({
-        id: randomUUID(),
-        conversationId: latest.id,
-        role: 'assistant',
-        mode: latest.mode,
-        text: `Error: ${errText}`,
-        error: errText,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        runId: runControl.runId,
-        agentId: latest.agentId,
-        modelId: latest.modelId
-      })
-      host.setRunStatus(latest, null, 'failed', errText)
-    } catch {
-      // Ignore post-disposal errors when DB store was closed after cancellation or shutdown.
-    }
-  })
-  return conv
 }

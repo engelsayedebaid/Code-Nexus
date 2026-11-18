@@ -36,10 +36,8 @@ export function IdeExtensionIcon({
     setFailed(false)
   }, [src])
 
-  const boxSizeClass =
-    size === 'sm' ? 'size-8' : size === 'lg' ? 'size-12' : 'size-10'
-  const iconSizeClass =
-    size === 'sm' ? 'size-4' : size === 'lg' ? 'size-6' : 'size-5'
+  const boxSizeClass = size === 'sm' ? 'size-8' : size === 'lg' ? 'size-12' : 'size-10'
+  const iconSizeClass = size === 'sm' ? 'size-4' : size === 'lg' ? 'size-6' : 'size-5'
 
   return (
     <div

@@ -1,4 +1,4 @@
-import type { IdeContextBudgetSummary } from './ide-agent-events'
+import type { IdeContextBudgetSummary, IdeRunTelemetrySummary } from './ide-agent-events'
 import type { PastedContentFormat } from '../smart-paste/smart-paste-config'
 
 export type IdeExecutionMode = 'ask' | 'plan' | 'agent' | 'review'
@@ -166,8 +166,10 @@ export type IdeActivityEventType =
   | 'agent.role_started'
   | 'agent.role_completed'
   | 'step.started'
+  | 'step.retrying'
   | 'step.completed'
   | 'step.failed'
+  | 'context.compacted'
   | 'editor.file_opened'
   | 'editor.edit_chunk'
   | 'live_edit.started'
@@ -282,6 +284,7 @@ export type IdeConversation = {
   commandExecutions: IdeCommandExecutionRecord[]
   pendingPermissions: IdePermissionRequest[]
   contextBudget?: IdeContextBudgetSummary
+  runTelemetry?: IdeRunTelemetrySummary[]
 }
 
 export type IdeConversationSummary = {
@@ -310,6 +313,7 @@ export type IdeTodoItem = {
 
 export type {
   IdeContextBudgetSummary,
+  IdeRunTelemetrySummary,
   IdeProviderModelOption,
   IdeProviderAgentOption,
   IdeEditorHighlightTarget,

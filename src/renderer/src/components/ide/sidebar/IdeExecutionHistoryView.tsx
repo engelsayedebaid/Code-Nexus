@@ -8,6 +8,7 @@ import {
   Terminal,
   XCircle
 } from 'lucide-react'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { cn } from '@/lib/class-names'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import type {
   IdeCommandCategory,
@@ -40,60 +40,63 @@ function CommandRow({
     liveOutput || [record.stdoutTail, record.stderrTail].filter(Boolean).join('\n')
 
   return (
-    <div className="rounded-md border border-border/70 bg-card/70 text-xs overflow-hidden">
+    <div className="overflow-hidden rounded-md border border-border/70 bg-card/70 text-xs">
       <div className="flex items-start justify-between gap-2 px-2.5 py-2">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-start gap-1.5 text-left"
+          className="flex min-w-0 flex-1 items-start gap-1.5 text-start"
           onClick={() => setExpanded((prev) => !prev)}
         >
           <span className="mt-0.5 text-muted-foreground">
             {expanded ? (
               <ChevronDown className="size-3.5" />
             ) : (
-              <ChevronRight className="size-3.5" />
+              <ChevronRight className="size-3.5 rtl:rotate-180" />
             )}
           </span>
-          <span className="min-w-0 flex-1 font-mono text-[11px] font-medium text-foreground break-all">
+          <span
+            dir="ltr"
+            className="min-w-0 flex-1 break-all font-mono text-2xs font-medium text-foreground"
+          >
             {record.command}
           </span>
         </button>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-            {record.category}
-          </Badge>
+          <Badge variant="referenceLabel">{record.category}</Badge>
           <Badge
-            variant="outline"
-            className={cn(
-              'text-[10px] px-1.5 py-0 gap-1',
-              record.status === 'passed' &&
-                'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
-              record.status === 'failed' &&
-                'border-destructive/40 bg-destructive/10 text-destructive',
-              record.status === 'running' && 'border-sky-500/40 bg-sky-500/10 text-sky-500'
-            )}
+            variant={
+              record.status === 'failed'
+                ? 'destructive'
+                : record.status === 'running'
+                  ? 'secondary'
+                  : 'referenceLabel'
+            }
           >
             {record.status === 'passed' ? <CheckCircle2 className="size-2.5" /> : null}
             {record.status === 'failed' ? <XCircle className="size-2.5" /> : null}
+            {record.status === 'running' ? <LoadingSpinner className="size-2.5" /> : null}
             {record.status}
           </Badge>
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-border/50 px-2.5 py-1 text-[10.5px] text-muted-foreground">
-        <span>
+      <div className="flex items-center justify-between border-t border-border/50 px-2.5 py-1 text-3xs text-muted-foreground">
+        <span dir="ltr">
           exit: {record.exitCode ?? '—'}
           {record.durationMs !== undefined ? ` · ${record.durationMs}ms` : ''}
         </span>
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 tabular-nums">
           <Clock className="size-2.5" />
           {new Date(record.startedAt).toLocaleTimeString()}
         </span>
       </div>
 
       {expanded && combinedOutput ? (
-        <pre className="scrollbar-sleek max-h-56 overflow-auto border-t border-border/60 bg-background/90 p-2 font-mono text-[10.5px] text-foreground whitespace-pre-wrap break-all">
+        <pre
+          dir="ltr"
+          className="scrollbar-sleek max-h-56 overflow-auto border-t border-border/60 bg-background/90 p-2 font-mono text-3xs whitespace-pre-wrap break-all text-foreground"
+        >
           {combinedOutput}
         </pre>
       ) : null}
@@ -126,13 +129,15 @@ export function IdeExecutionHistoryView({
     }
     setRunning(true)
     try {
-      await runCommand({
+      const ok = await runCommand({
         conversationId: conversation.id,
         worktreeSelector,
         command: trimmed,
         category
       })
-      setCommandInput('')
+      if (ok) {
+        setCommandInput('')
+      }
     } finally {
       setRunning(false)
     }
@@ -140,13 +145,13 @@ export function IdeExecutionHistoryView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border/70 p-2.5 space-y-1.5">
-        <div className="text-[11px] font-medium text-muted-foreground">
-          Run Workspace Check or Command (approved plan / permission gated)
+      <div className="space-y-1.5 border-b border-border/70 p-2.5">
+        <div className="text-2xs font-medium text-muted-foreground">
+          Run Workspace Check or Command
         </div>
         <div className="flex items-center gap-1.5">
           <Select value={category} onValueChange={(v) => setCategory(v as IdeCommandCategory)}>
-            <SelectTrigger size="sm" density="compact" className="h-7 w-[88px] text-[11px]">
+            <SelectTrigger size="sm" density="compact" className="w-[96px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -158,6 +163,9 @@ export function IdeExecutionHistoryView({
             </SelectContent>
           </Select>
           <Input
+            dir="ltr"
+            variant="code"
+            density="compact"
             value={commandInput}
             onChange={(e) => setCommandInput(e.target.value)}
             onKeyDown={(e) => {
@@ -166,17 +174,16 @@ export function IdeExecutionHistoryView({
                 void handleRun()
               }
             }}
-            placeholder="e.g. pnpm test or npm run typecheck"
-            className="h-7 flex-1 font-mono text-xs"
+            placeholder="e.g. pnpm test or pnpm tc"
+            className="flex-1"
             disabled={!conversation || !worktreeSelector || running}
           />
           <Button
-            size="sm"
-            className="h-7 px-2.5 text-xs"
+            size="xs"
             disabled={!conversation || !worktreeSelector || !commandInput.trim() || running}
             onClick={() => void handleRun()}
           >
-            <Play className="mr-1 size-3" />
+            {running ? <LoadingSpinner className="size-3" /> : <Play className="size-3" />}
             Run
           </Button>
         </div>

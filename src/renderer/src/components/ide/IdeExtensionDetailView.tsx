@@ -10,10 +10,11 @@ import {
   Star,
   Trash2
 } from 'lucide-react'
-import type {
-  OpenVsxExtensionDetails,
-  OpenVsxExtensionSummary,
-  OpenVsxInstalledExtension
+import {
+  toOpenVsxPluginKey,
+  type OpenVsxExtensionDetails,
+  type OpenVsxExtensionSummary,
+  type OpenVsxInstalledExtension
 } from '../../../../shared/openvsx/openvsx-types'
 import { useTranslate } from '@/i18n/use-translate'
 import { Button } from '@/components/ui/button'
@@ -83,21 +84,24 @@ export function IdeExtensionDetailView({
   const version = installedRecord?.version ?? details?.version ?? summary.version
   const publisher = installedRecord?.publisher ?? details?.publishedBy ?? summary.publishedBy
   const verified = installedRecord?.verified ?? details?.verified ?? summary.verified
-  const downloadCount = details?.downloadCount ?? summary.downloadCount ?? installedRecord?.downloadCount
-  const averageRating = details?.averageRating ?? summary.averageRating ?? installedRecord?.averageRating
+  const downloadCount =
+    details?.downloadCount ?? summary.downloadCount ?? installedRecord?.downloadCount
+  const averageRating =
+    details?.averageRating ?? summary.averageRating ?? installedRecord?.averageRating
   const iconSrc = installedRecord?.iconDataUrl ?? details?.iconUrl ?? summary.iconUrl
   const extensionPack = installedRecord?.extensionPack ?? details?.extensionPack ?? []
   const dependencies = installedRecord?.dependencies ?? details?.dependencies ?? []
   const readmeMarkdown = details?.readmeMarkdown ?? installedRecord?.readmeMarkdown
-  const repositoryUrl = installedRecord?.repositoryUrl ?? details?.repositoryUrl ?? summary.repositoryUrl
+  const repositoryUrl =
+    installedRecord?.repositoryUrl ?? details?.repositoryUrl ?? summary.repositoryUrl
   const homepageUrl = installedRecord?.homepageUrl ?? details?.homepageUrl ?? summary.homepageUrl
   const runtimeSupport = installedRecord?.runtimeSupport ?? details?.runtimeSupportHint
 
   const hasThemes = Boolean(
     installedRecord &&
-      installedRecord.enabled &&
-      (installedRecord.contributions.themes.length > 0 ||
-        installedRecord.contributions.iconThemes.length > 0)
+    installedRecord.enabled &&
+    (installedRecord.contributions.themes.length > 0 ||
+      installedRecord.contributions.iconThemes.length > 0)
   )
 
   const handleApplyThemes = async (): Promise<void> => {
@@ -106,7 +110,7 @@ export function IdeExtensionDetailView({
     }
     setApplyingTheme(true)
     try {
-      const applied = await applyPluginThemesNow(`openvsx:${installedRecord.id}`)
+      const applied = await applyPluginThemesNow(toOpenVsxPluginKey(installedRecord.id))
       onStatusBanner(
         applied
           ? t('ide.openVsx.themeApplied', `Applied appearance from ${displayName}.`)

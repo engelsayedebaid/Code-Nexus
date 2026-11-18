@@ -38,10 +38,12 @@ import {
   DesktopBrowserBridgeResultParams
 } from '../desktop-browser-bridge-protocol'
 import {
+  IdeAgentCancelEnhancePromptParams,
   IdeAgentChangeDecisionParams,
   IdeAgentCreateConversationParams,
   IdeAgentDeleteConversationParams,
   IdeAgentEmptyParams,
+  IdeAgentEnhancePromptParams,
   IdeAgentGetConversationParams,
   IdeAgentListConversationsParams,
   IdeAgentPermissionDecisionParams,
@@ -1267,9 +1269,11 @@ export const RPC_PARAMS_BY_METHOD = {
   'hostedReview.createStacked': HostedReviewCreate,
   'hostedReview.forBranch': HostedReviewForBranch,
   'hostedReview.getCreationEligibility': HostedReviewCreationEligibility,
+  'ideAgent.cancelEnhancePrompt': IdeAgentCancelEnhancePromptParams,
   'ideAgent.changeDecision': IdeAgentChangeDecisionParams,
   'ideAgent.createConversation': IdeAgentCreateConversationParams,
   'ideAgent.deleteConversation': IdeAgentDeleteConversationParams,
+  'ideAgent.enhancePrompt': IdeAgentEnhancePromptParams,
   'ideAgent.getConversation': IdeAgentGetConversationParams,
   'ideAgent.listConversations': IdeAgentListConversationsParams,
   'ideAgent.listProviders': IdeAgentProvidersParams,

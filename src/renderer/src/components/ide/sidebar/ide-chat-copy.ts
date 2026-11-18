@@ -1,4 +1,3 @@
-import { formatArabicCount } from '../../../../../shared/ide-agent/ide-language'
 import type {
   IdeExecutionMode,
   IdePlanFileAction,
@@ -6,174 +5,138 @@ import type {
   IdeTaskPlan
 } from '../../../../../shared/ide-agent/ide-agent-types'
 
-export function formatIdeFileCount(count: number, arabic: boolean): string {
-  if (arabic) {
-    return formatArabicCount(count, {
-      singular: 'ملف',
-      dual: 'ملفان',
-      plural: 'ملفات',
-      accusative: 'ملفًا'
-    })
-  }
+export function formatIdeFileCount(count: number, _arabic?: boolean): string {
   return count === 1 ? '1 file' : `${count} files`
 }
 
-export function formatIdeStepCount(count: number, arabic: boolean): string {
-  if (arabic) {
-    return formatArabicCount(count, {
-      singular: 'خطوة',
-      dual: 'خطوتان',
-      plural: 'خطوات',
-      accusative: 'خطوة'
-    })
-  }
+export function formatIdeStepCount(count: number, _arabic?: boolean): string {
   return count === 1 ? '1 step' : `${count} steps`
 }
 
-export function getIdeModeLabel(mode: IdeExecutionMode, arabic: boolean): string {
-  if (!arabic) {
-    return mode === 'ask'
-      ? 'Ask'
-      : mode === 'plan'
-        ? 'Plan'
-        : mode === 'review'
-          ? 'Review'
-          : 'Agent'
-  }
+export function getIdeModeLabel(mode: IdeExecutionMode, _arabic?: boolean): string {
   switch (mode) {
     case 'ask':
-      return 'سؤال'
+      return 'Ask'
     case 'plan':
-      return 'خطة'
+      return 'Plan'
     case 'review':
-      return 'مراجعة'
+      return 'Review'
     default:
-      return 'وكيل'
+      return 'Agent'
+  }
+}
+
+export function getIdeModeDescription(mode: IdeExecutionMode, _arabic?: boolean): string {
+  switch (mode) {
+    case 'ask':
+      return 'Read-only Q&A and explanations without file edits'
+    case 'plan':
+      return 'Inspect workspace and propose an approval plan'
+    case 'review':
+      return 'Audit diffs, code quality, bugs, and security'
+    default:
+      return 'Plan, edit files, and verify changes end-to-end'
+  }
+}
+
+export function getIdeModePlaceholder(mode: IdeExecutionMode, _arabic?: boolean): string {
+  switch (mode) {
+    case 'ask':
+      return 'Ask about the codebase, @ to reference files...'
+    case 'plan':
+      return 'Describe what to plan, @ to reference files...'
+    case 'review':
+      return 'Review changes, bugs, or architecture, @ for files...'
+    default:
+      return 'Plan, build, fix anything — @ to add context...'
   }
 }
 
 export function getIdeFileActionLabel(
   action: IdePlanFileAction['action'],
-  arabic: boolean
+  _arabic?: boolean
 ): string {
-  if (!arabic) {
-    switch (action) {
-      case 'create':
-        return 'Create'
-      case 'delete':
-        return 'Delete'
-      case 'mkdir':
-        return 'New folder'
-      case 'rename':
-        return 'Move'
-      case 'delete_folder':
-        return 'Del folder'
-      default:
-        return 'Edit'
-    }
-  }
   switch (action) {
     case 'create':
-      return 'إنشاء'
+      return 'Create'
     case 'delete':
-      return 'حذف'
+      return 'Delete'
     case 'mkdir':
-      return 'مجلد جديد'
+      return 'New folder'
     case 'rename':
-      return 'نقل'
+      return 'Move'
     case 'delete_folder':
-      return 'حذف مجلد'
+      return 'Del folder'
     default:
-      return 'تعديل'
+      return 'Edit'
   }
 }
 
 export function getIdeComplexityLabel(
   complexity: IdeTaskPlan['estimatedComplexity'],
-  arabic: boolean
+  _arabic?: boolean
 ): string {
-  if (!arabic) {
-    return complexity === 'low' ? 'Low' : complexity === 'medium' ? 'Medium' : 'High'
-  }
-  return complexity === 'low' ? 'بسيط' : complexity === 'medium' ? 'متوسط' : 'متقدم'
+  return complexity === 'low' ? 'Low' : complexity === 'medium' ? 'Medium' : 'High'
 }
+
+export type IdeFineGrainedRunStage =
+  | 'investigating_files'
+  | 'searching_repo'
+  | 'editing_files'
+  | 'running_tests'
+  | 'recovering_errors'
 
 export function getIdeRunStageLabel(
   status: IdeRunStatus,
-  arabic: boolean,
-  isAnswering = false
+  _arabic = false,
+  isAnswering = false,
+  hasReadActivity = false,
+  fineStage?: IdeFineGrainedRunStage | null
 ): string {
+  if (fineStage === 'recovering_errors') {
+    return 'Recovering from error…'
+  }
+  if (fineStage === 'running_tests') {
+    return 'Running tests & checks…'
+  }
+  if (fineStage === 'searching_repo' && (status === 'analyzing' || status === 'planning')) {
+    return 'Searching repository…'
+  }
+  if (fineStage === 'investigating_files' && status === 'analyzing') {
+    return 'Investigating files…'
+  }
+  if (fineStage === 'editing_files' && status === 'executing') {
+    return 'Editing files…'
+  }
   if (status === 'executing' && isAnswering) {
-    return arabic ? 'جارٍ صياغة الرد' : 'Writing response'
+    return 'Thinking…'
   }
-  const labels: Record<IdeRunStatus, readonly [string, string]> = {
-    idle: ['Ready', 'جاهز'],
-    analyzing: ['Inspecting project', 'جارٍ فحص المشروع'],
-    planning: ['Drafting plan', 'جارٍ إعداد الخطة'],
-    awaiting_approval: ['Awaiting approval', 'بانتظار الموافقة'],
-    awaiting_permission: ['Permission needed', 'بانتظار الإذن'],
-    executing: ['Applying changes', 'جارٍ تنفيذ التغييرات'],
-    paused: ['Paused', 'متوقف مؤقتًا'],
-    verifying: ['Verifying changes', 'جارٍ التحقق من التغييرات'],
-    completed: ['Completed', 'اكتمل'],
-    failed: ['Failed', 'تعذر الإكمال'],
-    canceled: ['Stopped', 'تم الإيقاف']
+  if (status === 'analyzing') {
+    return hasReadActivity ? 'Investigating files…' : 'Thinking…'
   }
-  return labels[status][arabic ? 1 : 0]
+  const labels: Record<IdeRunStatus, string> = {
+    idle: 'Ready',
+    analyzing: 'Thinking…',
+    planning: 'Planning changes…',
+    awaiting_approval: 'Awaiting approval',
+    awaiting_permission: 'Waiting for permission',
+    executing: 'Applying changes…',
+    paused: 'Paused',
+    verifying: 'Verifying changes…',
+    completed: 'Completed',
+    failed: 'Failed',
+    canceled: 'Stopped'
+  }
+  return labels[status]
 }
 
-export function getIdeChatCopy(arabic: boolean) {
-  if (arabic) {
-    return {
-      thinking: 'جارٍ التفكير وصياغة الرد...',
-      answeringDetail: 'يتم إعداد رد واضح ومباشر على سؤالك.',
-      analyzingDetail: 'قراءة بنية المشروع والملفات ذات الصلة.',
-      planningDetail: 'تحديد الملفات المطلوبة وخطوات التنفيذ.',
-      executingFallbackDetail: 'سيظهر كل ملف وخطوة هنا فور بدء تطبيقها.',
-      modifiedFilesTitle: 'الملفات المعدّلة',
-      commandsTitle: 'الأوامر والتحقق',
-      passed: 'ناجح',
-      failed: 'فشل',
-      running: 'قيد التشغيل',
-      canceled: 'ملغى',
-      denied: 'مرفوض',
-      copyMessage: 'نسخ الرد',
-      copied: 'تم النسخ',
-      sensitiveFile: 'ملف حساس',
-      planTitle: 'خطة التنفيذ',
-      filesTitle: 'الملفات المستهدفة',
-      stepsTitle: 'خطوات العمل',
-      showAllFiles: (count: number) => `عرض كل الملفات (${count})`,
-      showStepDetails: 'عرض التفاصيل',
-      hideStepDetails: 'إخفاء التفاصيل',
-      notesAndVerification: (count: number) => `ملاحظات والتحقق (${count})`,
-      risksLabel: 'ملاحظات ومخاطر',
-      verificationLabel: 'خطوات التحقق',
-      decisionApproved: 'تمت الموافقة',
-      decisionRejected: 'تم الرفض',
-      decisionRevision: 'طُلب تعديل',
-      revisionPlaceholder: 'اكتب التعديلات التي تريدها على الخطة أو أضف متطلبات جديدة...',
-      submitRevision: 'إرسال التعديل',
-      cancel: 'إلغاء',
-      approveAndExecute: 'موافقة وتنفيذ',
-      reject: 'رفض',
-      revisePlan: 'تعديل الخطة',
-      viewChanges: 'عرض التغييرات',
-      changeModel: 'تغيير النموذج',
-      pause: 'إيقاف مؤقت',
-      resume: 'استئناف',
-      stop: 'إيقاف',
-      retry: 'إعادة المحاولة',
-      resumeHint: 'اضغط استئناف للمتابعة',
-      autoContinueHint: 'التنفيذ مستمر تلقائيًا'
-    }
-  }
+export function getIdeChatCopy(_arabic?: boolean) {
   return {
-    thinking: 'Thinking...',
-    answeringDetail: 'Preparing a clear, direct response.',
-    analyzingDetail: 'Reading workspace structure and relevant files.',
-    planningDetail: 'Mapping target files and implementation steps.',
-    executingFallbackDetail: 'Each file and step will appear here as it starts.',
+    thinking: 'Thinking…',
+    answeringDetail: 'Preparing response…',
+    analyzingDetail: 'Inspecting workspace context…',
+    planningDetail: 'Mapping affected files and implementation steps…',
+    executingFallbackDetail: 'Applying planned operations…',
     modifiedFilesTitle: 'Modified files',
     commandsTitle: 'Checks & commands',
     passed: 'Passed',

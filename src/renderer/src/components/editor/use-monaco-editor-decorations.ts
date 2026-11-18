@@ -22,6 +22,7 @@ export function useMonacoEditorDecorations(params: {
   mountedEditor: editor.IStandaloneCodeEditor | null
   content: string
   language: string
+  worktreeId?: string
   relativePath?: string
   markdownDocuments: MarkdownDocument[] | undefined
   conflictDecorationsEnabled: boolean
@@ -31,6 +32,7 @@ export function useMonacoEditorDecorations(params: {
     mountedEditor,
     content,
     language,
+    worktreeId,
     relativePath,
     markdownDocuments,
     conflictDecorationsEnabled
@@ -103,6 +105,9 @@ export function useMonacoEditorDecorations(params: {
       !model ||
       !relativePath ||
       !ideActiveEditHighlight ||
+      (ideActiveEditHighlight.worktreeId &&
+        worktreeId &&
+        ideActiveEditHighlight.worktreeId !== worktreeId) ||
       normalizeWorkspaceRelativePath(ideActiveEditHighlight.relativePath).toLowerCase() !==
         normalizeWorkspaceRelativePath(relativePath).toLowerCase()
     ) {
@@ -153,7 +158,7 @@ export function useMonacoEditorDecorations(params: {
     } else {
       ideEditDecorationsRef.current.set(nextDecorations)
     }
-    if (ideFollowAgent) {
+    if (ideFollowAgent || ideActiveEditHighlight.status === 'navigation') {
       const targetLine = ideActiveEditHighlight.cursorLine
         ? Math.max(1, Math.min(maxLines, ideActiveEditHighlight.cursorLine))
         : endLine
@@ -164,7 +169,7 @@ export function useMonacoEditorDecorations(params: {
         endColumn: 1
       })
     }
-  }, [ideActiveEditHighlight, ideFollowAgent, mountedEditor, relativePath])
+  }, [ideActiveEditHighlight, ideFollowAgent, mountedEditor, relativePath, worktreeId])
 
   useEffect(() => {
     const completionOwner = completionOwnerRef.current

@@ -50,7 +50,12 @@ export type EditorExternalWatchTargetState = Pick<
   Partial<
     Pick<
       AppState,
-      'activeWorkspaceExecutionHostId' | 'rightSidebarEffectiveTab' | 'lastVisitedAtByWorktreeId'
+      | 'activeWorkspaceExecutionHostId'
+      | 'rightSidebarEffectiveTab'
+      | 'lastVisitedAtByWorktreeId'
+      | 'appMode'
+      | 'sidebarOpen'
+      | 'ideDevelopmentView'
     >
   >
 
@@ -63,22 +68,7 @@ type WatchedTargetsSnapshot = {
 }
 
 const NO_SECTION_TARGETS: readonly EditorExternalWatchTarget[] = []
-let cachedSectionTargets = NO_SECTION_TARGETS
-let cachedOpenFiles: AppState['openFiles'] | null = null
-let cachedWorktreesByRepo: AppState['worktreesByRepo'] | null = null
-let cachedRepos: AppState['repos'] | null = null
-let cachedActiveWorktreeId: string | null = null
-let cachedActiveWorkspaceExecutionHostId: AppState['activeWorkspaceExecutionHostId'] = null
-let cachedRuntimeEnvironmentId: string | undefined
-let cachedRightSidebarOpen: boolean | null = null
-let cachedRightSidebarTab: AppState['rightSidebarTab'] | null = null
-let cachedRightSidebarEffectiveTab: AppState['rightSidebarEffectiveTab'] | undefined
-let cachedRightSidebarExplorerView: AppState['rightSidebarExplorerView'] | null = null
-let cachedGitStatusHugeByWorktree: AppState['gitStatusHugeByWorktree'] | null = null
-let cachedSshConnectionStates: AppState['sshConnectionStates'] | null = null
-let cachedFolderWorkspaces: AppState['folderWorkspaces'] | null = null
-let cachedProjectGroups: AppState['projectGroups'] | null = null
-let cachedLastVisitedAtByWorktreeId: AppState['lastVisitedAtByWorktreeId'] | undefined
+let cachedInputs: readonly unknown[] | null = null
 let cachedWatchedTargetsSnapshot: WatchedTargetsSnapshot = {
   targets: [],
   targetsKey: '',
@@ -157,24 +147,28 @@ export function selectEditorExternalWatchTargets(
 ): WatchedTargetsSnapshot {
   const runtimeEnvironmentId = state.settings?.activeRuntimeEnvironmentId?.trim() || undefined
   const activeWorkspaceExecutionHostId = state.activeWorkspaceExecutionHostId ?? null
-  if (
-    cachedSectionTargets === sectionTargets &&
-    cachedOpenFiles === state.openFiles &&
-    cachedWorktreesByRepo === selectWorktreesByRepo(state) &&
-    cachedRepos === state.repos &&
-    cachedActiveWorktreeId === state.activeWorktreeId &&
-    cachedActiveWorkspaceExecutionHostId === activeWorkspaceExecutionHostId &&
-    cachedRuntimeEnvironmentId === runtimeEnvironmentId &&
-    cachedRightSidebarOpen === state.rightSidebarOpen &&
-    cachedRightSidebarTab === state.rightSidebarTab &&
-    cachedRightSidebarEffectiveTab === state.rightSidebarEffectiveTab &&
-    cachedRightSidebarExplorerView === state.rightSidebarExplorerView &&
-    cachedGitStatusHugeByWorktree === state.gitStatusHugeByWorktree &&
-    cachedSshConnectionStates === state.sshConnectionStates &&
-    cachedFolderWorkspaces === selectFolderWorkspaces(state) &&
-    cachedProjectGroups === state.projectGroups &&
-    cachedLastVisitedAtByWorktreeId === state.lastVisitedAtByWorktreeId
-  ) {
+  const nextInputs: readonly unknown[] = [
+    sectionTargets,
+    state.openFiles,
+    selectWorktreesByRepo(state),
+    state.repos,
+    state.activeWorktreeId,
+    activeWorkspaceExecutionHostId,
+    runtimeEnvironmentId,
+    state.rightSidebarOpen,
+    state.rightSidebarTab,
+    state.rightSidebarEffectiveTab,
+    state.rightSidebarExplorerView,
+    state.gitStatusHugeByWorktree,
+    state.sshConnectionStates,
+    selectFolderWorkspaces(state),
+    state.projectGroups,
+    state.lastVisitedAtByWorktreeId,
+    state.appMode,
+    state.sidebarOpen,
+    state.ideDevelopmentView
+  ]
+  if (cachedInputs && nextInputs.every((value, index) => value === cachedInputs?.[index])) {
     return cachedWatchedTargetsSnapshot
   }
 
@@ -222,11 +216,17 @@ export function selectEditorExternalWatchTargets(
       state.sshConnectionStates.get(activeRepo.connectionId)?.status === 'connected')
   // Why: the stored tab can be hidden for this workspace (Source Control on a folder) while Explorer renders as the fallback.
   const shownRightSidebarTab = state.rightSidebarEffectiveTab ?? state.rightSidebarTab
+  const ideSidebarNeedsWatch =
+    state.appMode === 'ide' &&
+    state.sidebarOpen &&
+    (state.ideDevelopmentView === 'files' ||
+      (state.ideDevelopmentView === 'source-control' && sourceControlCanConsumeWatch))
   const activeWorktreeNeedsSidebarWatch =
     activeWorktreeId !== null &&
-    state.rightSidebarOpen &&
-    ((shownRightSidebarTab === 'explorer' && state.rightSidebarExplorerView === 'files') ||
-      (shownRightSidebarTab === 'source-control' && sourceControlCanConsumeWatch))
+    (ideSidebarNeedsWatch ||
+      (state.rightSidebarOpen &&
+        ((shownRightSidebarTab === 'explorer' && state.rightSidebarExplorerView === 'files') ||
+          (shownRightSidebarTab === 'source-control' && sourceControlCanConsumeWatch))))
   if (activeWorktreeNeedsSidebarWatch) {
     // Why: this app-level watcher owns Explorer/Source-Control subscriptions so downstream consumers don't fight over watch/unwatch IPC.
     addWatchConsumer(
@@ -253,22 +253,7 @@ export function selectEditorExternalWatchTargets(
   const nextTargets = sortedEntries.map(([, target]) => target)
   const targetsKey = sortedEntries.map(([key]) => key).join('|')
   const unwatchedTargetsKey = [...unwatchedTargetKeys].sort().join('|')
-  cachedSectionTargets = sectionTargets
-  cachedOpenFiles = state.openFiles
-  cachedWorktreesByRepo = selectWorktreesByRepo(state)
-  cachedRepos = state.repos
-  cachedActiveWorktreeId = state.activeWorktreeId
-  cachedActiveWorkspaceExecutionHostId = activeWorkspaceExecutionHostId
-  cachedRuntimeEnvironmentId = runtimeEnvironmentId
-  cachedRightSidebarOpen = state.rightSidebarOpen
-  cachedRightSidebarTab = state.rightSidebarTab
-  cachedRightSidebarEffectiveTab = state.rightSidebarEffectiveTab
-  cachedRightSidebarExplorerView = state.rightSidebarExplorerView
-  cachedGitStatusHugeByWorktree = state.gitStatusHugeByWorktree
-  cachedSshConnectionStates = state.sshConnectionStates
-  cachedFolderWorkspaces = selectFolderWorkspaces(state)
-  cachedProjectGroups = state.projectGroups
-  cachedLastVisitedAtByWorktreeId = state.lastVisitedAtByWorktreeId
+  cachedInputs = nextInputs
 
   if (
     targetsKey === cachedWatchedTargetsSnapshot.targetsKey &&

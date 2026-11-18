@@ -1,27 +1,9 @@
-import { existsSync } from 'node:fs'
-import { readdir } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { classifySensitiveFilePath } from '../../shared/ide-agent/ide-plan-policy'
 import { detectProjectArchitecture, type ProjectArchitectureProfile } from './ide-codebase-intel'
+import { listWorkspaceFilesWithRipgrep } from './harness/ripgrep-workspace-search'
 
-const MAX_TREE_SCAN_FILES = 240
-
-const IGNORED_DIRS = new Set([
-  '.git',
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-  'coverage',
-  '__pycache__',
-  '.venv',
-  'venv',
-  'target'
-])
+const MAX_TREE_SCAN_FILES = 1_600
 
 export type WorkspaceInspectionSnapshot = {
   workspacePath: string
@@ -32,74 +14,68 @@ export type WorkspaceInspectionSnapshot = {
   architecture?: ProjectArchitectureProfile
 }
 
+async function hasGitEntry(workspacePath: string): Promise<boolean> {
+  try {
+    await stat(join(workspacePath, '.git'))
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function inspectWorkspaceTree(
   workspacePath: string,
   hintTerms: readonly string[],
   readTextFile: (
     relativePath: string
-  ) => Promise<{ ok: true; content: string | null } | { ok: false }>
+  ) => Promise<{ ok: true; content: string | null } | { ok: false }>,
+  signal?: AbortSignal
 ): Promise<WorkspaceInspectionSnapshot> {
-  const fileList: string[] = []
-  const blockedSecretFiles: string[] = []
-  const isGitRepo = existsSync(join(workspacePath, '.git'))
+  const [isGitRepo, scanned] = await Promise.all([
+    hasGitEntry(workspacePath),
+    listWorkspaceFilesWithRipgrep({
+      workspacePath,
+      maxFiles: MAX_TREE_SCAN_FILES,
+      signal
+    })
+  ])
 
-  const walk = async (relDir: string, depth: number): Promise<void> => {
-    if (depth > 5 || fileList.length >= MAX_TREE_SCAN_FILES) {
-      return
-    }
-    const absDir = relDir ? join(workspacePath, relDir) : workspacePath
-    let entries
-    try {
-      entries = await readdir(absDir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    entries.sort((a, b) => a.name.localeCompare(b.name))
-    for (const entry of entries) {
-      if (fileList.length >= MAX_TREE_SCAN_FILES) {
-        break
-      }
-      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        if (!IGNORED_DIRS.has(entry.name)) {
-          await walk(relPath, depth + 1)
-        }
-        continue
-      }
-      if (entry.isFile()) {
-        const sensitive = classifySensitiveFilePath(relPath, 'read-context')
-        if (sensitive === 'send_secret_context') {
-          blockedSecretFiles.push(relPath)
-          fileList.push(`${relPath} [secret-redacted]`)
-        } else {
-          fileList.push(relPath)
-        }
-      }
-    }
-  }
+  const fileList = [
+    ...scanned.files,
+    ...scanned.blockedSecretFiles.map((rel) => `${rel} [secret-redacted]`)
+  ].sort((a, b) => a.localeCompare(b))
+  const blockedSecretFiles = scanned.blockedSecretFiles
 
-  await walk('', 0)
-
-  const priorityCandidates = [
-    'package.json',
-    'tsconfig.json',
-    'README.md',
-    'Cargo.toml',
-    'pyproject.toml'
-  ]
   const terms = hintTerms.map((t) => t.toLowerCase().trim()).filter((t) => t.length >= 3)
-  const matchingFiles = fileList.filter(
-    (path) =>
-      !path.endsWith('[secret-redacted]') && terms.some((term) => path.toLowerCase().includes(term))
-  )
-  const toRead = Array.from(
-    new Set([...priorityCandidates, ...matchingFiles, ...fileList.slice(0, 8)])
-  )
-    .filter((path) => !path.endsWith('[secret-redacted]'))
-    .slice(0, 12)
+  const scoredCandidates =
+    terms.length > 0
+      ? scanned.files
+          .map((relPath) => {
+            const lower = relPath.toLowerCase()
+            const base = lower.split('/').pop() ?? lower
+            let score = 0
+            for (const term of terms) {
+              if (base === term || base.startsWith(`${term}.`)) {
+                score += 6
+              } else if (base.includes(term)) {
+                score += 3
+              } else if (lower.includes(term)) {
+                score += 1
+              }
+            }
+            return { relPath, score }
+          })
+          .filter((entry) => entry.score > 0)
+          .sort((a, b) => b.score - a.score || a.relPath.localeCompare(b.relPath))
+          .slice(0, 4)
+          .map((entry) => entry.relPath)
+      : []
 
   const keyFiles: { relativePath: string; content: string }[] = []
-  for (const relPath of toRead) {
+  for (const relPath of scoredCandidates) {
+    if (signal?.aborted) {
+      break
+    }
     const readRes = await readTextFile(relPath)
     if (readRes.ok && readRes.content !== null) {
       keyFiles.push({
@@ -112,7 +88,7 @@ export async function inspectWorkspaceTree(
     }
   }
 
-  const architecture = await detectProjectArchitecture(workspacePath, fileList, readTextFile)
+  const architecture = await detectProjectArchitecture(workspacePath, scanned.files, readTextFile)
 
   return {
     workspacePath,

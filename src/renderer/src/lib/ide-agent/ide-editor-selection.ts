@@ -41,15 +41,21 @@ export function installIdeSelectionTracking<
   },
   getRelativePath: () => string | undefined
 ): { dispose: () => void } {
-  return editorInstance.onDidChangeCursorSelection(() => {
+  const sub = editorInstance.onDidChangeCursorSelection(() => {
     const model = editorInstance.getModel()
     const sel = editorInstance.getSelection()
     const rel = getRelativePath()
     if (!model || !sel || sel.isEmpty() || !rel) {
+      if (!rel || latestEditorSelection?.relativePath.toLowerCase() === rel.toLowerCase()) {
+        recordIdeEditorSelection(null)
+      }
       return
     }
     const selectedText = model.getValueInRange(sel)
     if (!selectedText.trim()) {
+      if (latestEditorSelection?.relativePath.toLowerCase() === rel.toLowerCase()) {
+        recordIdeEditorSelection(null)
+      }
       return
     }
     recordIdeEditorSelection({
@@ -60,4 +66,13 @@ export function installIdeSelectionTracking<
       updatedAt: Date.now()
     })
   })
+  return {
+    dispose: () => {
+      const rel = getRelativePath()
+      if (!rel || latestEditorSelection?.relativePath.toLowerCase() === rel.toLowerCase()) {
+        recordIdeEditorSelection(null)
+      }
+      sub.dispose()
+    }
+  }
 }

@@ -2,7 +2,6 @@ import { AppIcon } from '@/components/icons/app-icon'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { Button } from '@/components/ui/button'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
-import { isArabicIdeConversation } from '../../../../../shared/ide-agent/ide-language'
 import type { IdeConversation } from '../../../../../shared/ide-agent/ide-agent-types'
 import { getIdeChatCopy, getIdeRunStageLabel } from './ide-chat-copy'
 
@@ -19,28 +18,25 @@ export function IdeRunStatusControls({ conversation }: { conversation: IdeConver
     conversation.status === 'executing' ||
     conversation.status === 'verifying'
   const isPaused = conversation.status === 'paused'
-  const canRetry =
-    conversation.activeRunId !== null &&
-    (conversation.status === 'failed' || conversation.status === 'canceled')
+  const canRetry = conversation.status === 'failed' || conversation.status === 'canceled'
 
   if (!isRunning && !isPaused && !canRetry && conversation.status !== 'awaiting_approval') {
     return null
   }
 
-  const arabic = isArabicIdeConversation(conversation.messages)
-  const copy = getIdeChatCopy(arabic)
+  const copy = getIdeChatCopy()
   const executingPlan = conversation.plans.some(
     (candidate) =>
       candidate.id === conversation.activePlanId &&
       (candidate.status === 'executing' || candidate.status === 'approved')
   )
   const isAnsweringTurn = conversation.status === 'executing' && !executingPlan
-  const statusLabel = getIdeRunStageLabel(conversation.status, arabic, isAnsweringTurn)
+  const statusLabel = getIdeRunStageLabel(conversation.status, false, isAnsweringTurn)
 
   return (
     <div
-      dir={arabic ? 'rtl' : 'ltr'}
-      className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-1 text-2xs"
+      dir="ltr"
+      className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-1 text-left text-2xs"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {isRunning ? (
@@ -48,7 +44,15 @@ export function IdeRunStatusControls({ conversation }: { conversation: IdeConver
         ) : (
           <AppIcon name="security" className="size-3 text-muted-foreground" />
         )}
-        <span className="truncate font-medium text-foreground">{statusLabel}</span>
+        <span
+          className={
+            isRunning
+              ? 'shimmer shimmer-duration-2000 truncate font-medium text-foreground'
+              : 'truncate font-medium text-foreground'
+          }
+        >
+          {statusLabel}
+        </span>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {isRunning && conversation.activeRunId ? (
@@ -118,7 +122,7 @@ export function IdeRunStatusControls({ conversation }: { conversation: IdeConver
             </Button>
           </>
         ) : null}
-        {canRetry && conversation.activeRunId ? (
+        {canRetry ? (
           <Button
             size="xs"
             variant="outline"
@@ -126,7 +130,7 @@ export function IdeRunStatusControls({ conversation }: { conversation: IdeConver
             onClick={() =>
               void controlRun({
                 conversationId: conversation.id,
-                runId: conversation.activeRunId!,
+                ...(conversation.activeRunId ? { runId: conversation.activeRunId } : {}),
                 action: 'retry'
               })
             }

@@ -6,15 +6,22 @@ import type { RightSidebarExplorerView } from '../../../../../../shared/ui-chrom
 type FileExplorerQueryStripProps = {
   view: RightSidebarExplorerView
   onSelectView: (view: RightSidebarExplorerView) => void
+  ideMode?: boolean
+  visibleInFilesView?: boolean
   children: React.ReactNode
 }
 
 export function FileExplorerQueryStrip({
   view,
   onSelectView,
+  ideMode = false,
+  visibleInFilesView = true,
   children
-}: FileExplorerQueryStripProps): React.JSX.Element {
+}: FileExplorerQueryStripProps): React.JSX.Element | null {
   const stripRef = useRef<HTMLDivElement>(null)
+  if (ideMode && view === 'files' && !visibleInFilesView) {
+    return null
+  }
   const focusedQuery = (): HTMLInputElement | null =>
     stripRef.current?.querySelector<HTMLInputElement>('[data-explorer-query-input]:focus') ?? null
 
@@ -34,7 +41,9 @@ export function FileExplorerQueryStrip({
   return (
     <div
       ref={stripRef}
-      className="border-b border-border px-2 py-2"
+      className={
+        ideMode ? 'border-b border-border/70 px-2 py-1.5' : 'border-b border-border px-2 py-2'
+      }
       onPointerDownCapture={(event) => {
         if (
           event.button === 0 &&
@@ -47,7 +56,7 @@ export function FileExplorerQueryStrip({
       }}
     >
       <div className="flex flex-col gap-2">
-        <FileExplorerViewSwitch view={view} onSelectView={handleSelectView} />
+        {!ideMode && <FileExplorerViewSwitch view={view} onSelectView={handleSelectView} />}
         {children}
       </div>
     </div>

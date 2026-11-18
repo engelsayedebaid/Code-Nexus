@@ -13,6 +13,8 @@ import type { IdeAttachmentStore } from './ide-attachment-store'
 import type { IdeContextBudgetTracker } from './ide-context-budget'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
 import type { RawAgentToolCall } from './ide-agent-prompt-parsers'
+import { redactSensitiveSecrets } from './harness/prompt-security-guard'
+import { readDiscoveredWorkspaceSkill } from './harness/workspace-instructions-loader'
 
 export type { ExecutedToolObservation } from './ide-agent-search-tools'
 
@@ -27,6 +29,7 @@ const READ_ONLY_TOOLS = new Set([
   'get_imports',
   'get_diagnostics',
   'git_status_diff',
+  'read_skill',
   'list_message_attachments',
   'read_attachment',
   'read_attachment_range',
@@ -50,6 +53,7 @@ export function describeReadOnlyToolPalette(): string {
     '- get_imports: { "path": "relative/path.ts" }',
     '- get_diagnostics: {}',
     '- git_status_diff: {}',
+    '- read_skill: { "name": "skillName" }',
     ...describeAttachmentToolPalette()
   ].join('\n')
 }
@@ -107,7 +111,7 @@ export async function executeAgentReadOnlyTool(params: {
         relativePath: rel
       }
     }
-    const recorded = budget.recordText(`file:${rel}`, res.content)
+    const recorded = budget.recordText(`file:${rel}`, redactSensitiveSecrets(res.content).text)
     return {
       tool: call.tool,
       ok: true,
@@ -115,6 +119,32 @@ export async function executeAgentReadOnlyTool(params: {
       output: `File ${rel} (sha256: ${res.sha256}):\n${recorded.text}`,
       activityType: 'analysis.file_read',
       relativePath: rel
+    }
+  }
+
+  if (call.tool === 'read_skill') {
+    const skillName = typeof call.args.name === 'string' ? call.args.name : ''
+    const skillRes = await readDiscoveredWorkspaceSkill(
+      gateway.target.workspacePath,
+      skillName,
+      signal
+    )
+    if (!skillRes.ok) {
+      return {
+        tool: call.tool,
+        ok: false,
+        summary: `Skill unavailable: ${skillName || 'unnamed'}`,
+        output: skillRes.message,
+        activityType: 'analysis.file_read'
+      }
+    }
+    const recorded = budget.recordText(`skill:${skillRes.name}`, skillRes.content)
+    return {
+      tool: call.tool,
+      ok: true,
+      summary: `Loaded skill ${skillRes.name}`,
+      output: `Skill "${skillRes.name}":\n${recorded.text}`,
+      activityType: 'analysis.file_read'
     }
   }
 

@@ -128,9 +128,13 @@ export type UiViewHistory =
   | 'artifacts'
   | 'mobile'
 
+export type IdeDevelopmentView = 'files' | 'search' | 'source-control' | 'extensions'
+
 export type UISliceCore = {
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
+  ideDevelopmentView: IdeDevelopmentView
+  setIdeDevelopmentView: (view: IdeDevelopmentView) => void
   ideSidebarView: IdeRightSidebarView
   setIdeSidebarView: (view: IdeRightSidebarView) => void
   ideFollowAgent: boolean

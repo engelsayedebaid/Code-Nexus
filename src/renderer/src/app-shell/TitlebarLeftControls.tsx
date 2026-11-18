@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, MoreHorizontal, PanelLeft, Search } from 'lucide-react'
 import logo from '../../../../resources/carver-logo.png'
+import { IdeActivityStrip } from '@/components/ide/IdeWorkspaceChrome'
 import { useTranslate } from '@/i18n/use-translate'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -133,7 +134,7 @@ export function TitlebarLeftControls({
             </TooltipContent>
           </Tooltip>
         )}
-        {isSidebarNavOnly && (
+        {isSidebarNavOnly && layout.appMode !== 'ide' && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -151,46 +152,54 @@ export function TitlebarLeftControls({
           </Tooltip>
         )}
       </div>
+      {isSidebarNavOnly && layout.appMode === 'ide' && layout.sidebarOpen ? (
+        <>
+          <div className="mx-1 h-3.5 w-px shrink-0 bg-border/70" />
+          <IdeActivityStrip className="pr-1.5" />
+        </>
+      ) : null}
       {/* Show shared workspace/page history wherever its shortcut is available. */}
-      {showNavControls && shouldShowWorktreeHistoryControls(layout.activeView) && (
-        // Collapsed headers shrink-wrap, so ml-auto alone cannot leave a history-button gutter.
-        <div className="ml-auto mr-1 flex items-center pl-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="sidebar-toggle sidebar-toggle-compact"
-                onClick={() => useAppStore.getState().goBackWorktree()}
-                disabled={!canGoBackWorktree}
-                aria-label={t('auto.App.064bd07810', 'Go back')}
-              >
-                <ArrowLeft size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>
-              {t('auto.App.fe21e8f6f5', 'Go back ({{value0}})', {
-                value0: historyBackShortcutLabel
-              })}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="sidebar-toggle sidebar-toggle-compact"
-                onClick={() => useAppStore.getState().goForwardWorktree()}
-                disabled={!canGoForwardWorktree}
-                aria-label={t('auto.App.cf9099fe98', 'Go forward')}
-              >
-                <ArrowRight size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>
-              {t('auto.App.f7aa73e785', 'Go forward ({{value0}})', {
-                value0: historyForwardShortcutLabel
-              })}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      )}
+      {showNavControls &&
+        layout.appMode !== 'ide' &&
+        shouldShowWorktreeHistoryControls(layout.activeView) && (
+          // Collapsed headers shrink-wrap, so ml-auto alone cannot leave a history-button gutter.
+          <div className="ml-auto mr-1 flex items-center pl-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="sidebar-toggle sidebar-toggle-compact"
+                  onClick={() => useAppStore.getState().goBackWorktree()}
+                  disabled={!canGoBackWorktree}
+                  aria-label={t('auto.App.064bd07810', 'Go back')}
+                >
+                  <ArrowLeft size={13} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>
+                {t('auto.App.fe21e8f6f5', 'Go back ({{value0}})', {
+                  value0: historyBackShortcutLabel
+                })}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="sidebar-toggle sidebar-toggle-compact"
+                  onClick={() => useAppStore.getState().goForwardWorktree()}
+                  disabled={!canGoForwardWorktree}
+                  aria-label={t('auto.App.cf9099fe98', 'Go forward')}
+                >
+                  <ArrowRight size={13} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>
+                {t('auto.App.f7aa73e785', 'Go forward ({{value0}})', {
+                  value0: historyForwardShortcutLabel
+                })}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
     </div>
   )
 }

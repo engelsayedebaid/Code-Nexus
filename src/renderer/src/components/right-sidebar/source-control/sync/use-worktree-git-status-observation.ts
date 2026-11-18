@@ -71,30 +71,48 @@ export function useWorktreeGitStatusObservation(
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const rightSidebarTab = useAppStore((s) => s.rightSidebarTab)
   const rightSidebarExplorerView = useAppStore((s) => s.rightSidebarExplorerView)
-  const pollingAllowed = useAppStore((s) =>
-    owner
-      ? options.enabled === true
-      : shouldPollActiveGitStatus({
-          activeWorktreeId,
-          worktreePath: activeWorktree?.path ?? null,
-          rightSidebarOpen: s.rightSidebarOpen,
-          rightSidebarTab: s.rightSidebarTab,
-          rightSidebarExplorerView: s.rightSidebarExplorerView,
-          openFiles: s.openFiles
-        })
-  )
-  const interactiveConsumerVisible = useAppStore((s) =>
-    owner
-      ? options.enabled === true
-      : hasInteractiveActiveGitStatusConsumer({
-          activeWorktreeId,
-          worktreePath: activeWorktree?.path ?? null,
-          rightSidebarOpen: s.rightSidebarOpen,
-          rightSidebarTab: s.rightSidebarTab,
-          rightSidebarExplorerView: s.rightSidebarExplorerView,
-          openFiles: s.openFiles
-        })
-  )
+  const pollingAllowed = useAppStore((s) => {
+    if (owner) {
+      return options.enabled === true
+    }
+    const ideVisible =
+      s.appMode === 'ide' &&
+      s.sidebarOpen &&
+      (s.ideDevelopmentView === 'files' || s.ideDevelopmentView === 'source-control')
+    return shouldPollActiveGitStatus({
+      activeWorktreeId,
+      worktreePath: activeWorktree?.path ?? null,
+      rightSidebarOpen: ideVisible || s.rightSidebarOpen,
+      rightSidebarTab: ideVisible
+        ? s.ideDevelopmentView === 'source-control'
+          ? 'source-control'
+          : 'explorer'
+        : s.rightSidebarTab,
+      rightSidebarExplorerView: ideVisible ? 'files' : s.rightSidebarExplorerView,
+      openFiles: s.openFiles
+    })
+  })
+  const interactiveConsumerVisible = useAppStore((s) => {
+    if (owner) {
+      return options.enabled === true
+    }
+    const ideVisible =
+      s.appMode === 'ide' &&
+      s.sidebarOpen &&
+      (s.ideDevelopmentView === 'files' || s.ideDevelopmentView === 'source-control')
+    return hasInteractiveActiveGitStatusConsumer({
+      activeWorktreeId,
+      worktreePath: activeWorktree?.path ?? null,
+      rightSidebarOpen: ideVisible || s.rightSidebarOpen,
+      rightSidebarTab: ideVisible
+        ? s.ideDevelopmentView === 'source-control'
+          ? 'source-control'
+          : 'explorer'
+        : s.rightSidebarTab,
+      rightSidebarExplorerView: ideVisible ? 'files' : s.rightSidebarExplorerView,
+      openFiles: s.openFiles
+    })
+  })
 
   const worktreePath = activeWorktree?.path ?? null
   const activePushTarget = activeWorktree?.pushTarget

@@ -18,7 +18,9 @@ function sanitizeZipEntryPath(rawName: string): string | null {
     return null
   }
 
-  const parts = normalizedSlashes.split('/').filter((segment) => segment.length > 0 && segment !== '.')
+  const parts = normalizedSlashes
+    .split('/')
+    .filter((segment) => segment.length > 0 && segment !== '.')
   if (parts.length === 0) {
     return null
   }
@@ -108,7 +110,10 @@ export async function extractVsixArchive(
         continue
       }
       totalActualBytes += content.byteLength
-      if (totalActualBytes > MAX_UNCOMPRESSED_TOTAL_BYTES || content.byteLength > MAX_SINGLE_ENTRY_BYTES) {
+      if (
+        totalActualBytes > MAX_UNCOMPRESSED_TOTAL_BYTES ||
+        content.byteLength > MAX_SINGLE_ENTRY_BYTES
+      ) {
         throw new Error('VSIX archive decompressed beyond safety limits')
       }
 

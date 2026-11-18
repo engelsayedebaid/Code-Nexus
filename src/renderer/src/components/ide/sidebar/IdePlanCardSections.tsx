@@ -24,11 +24,13 @@ export function IdePlanFilesSection({
   files,
   arabic,
   showAllFiles,
+  scratchWorkspace = false,
   onShowAll
 }: {
   files: readonly IdePlanFileAction[]
   arabic: boolean
   showAllFiles: boolean
+  scratchWorkspace?: boolean
   onShowAll: () => void
 }) {
   if (files.length === 0) {
@@ -54,33 +56,53 @@ export function IdePlanFilesSection({
         ) : null}
       </div>
       <div className="space-y-1">
-        {visibleFiles.map((file) => (
-          <button
-            key={`${file.action}:${file.path}`}
-            type="button"
-            onClick={() => openWorkspaceFileInEditor(file.path)}
-            className="flex w-full items-center justify-between gap-2.5 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5 text-start transition-colors hover:bg-accent/60"
-            title={file.summary || file.path}
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              {fileActionIcon(file.action)}
-              <span dir="ltr" className="truncate font-mono text-2xs font-medium text-foreground">
-                {file.path}
-              </span>
-              {file.summary ? (
-                <span
-                  dir="auto"
-                  className="hidden truncate text-2xs text-muted-foreground sm:inline"
-                >
-                  — {file.summary}
+        {visibleFiles.map((file) => {
+          const isFolderOrDelete =
+            file.action === 'mkdir' || file.action === 'delete_folder' || file.action === 'delete'
+          const content = (
+            <>
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                {fileActionIcon(file.action)}
+                <span dir="ltr" className="truncate font-mono text-2xs font-medium text-foreground">
+                  {file.path}
                 </span>
-              ) : null}
-            </span>
-            <span className="shrink-0 text-3xs font-medium text-muted-foreground">
-              {getIdeFileActionLabel(file.action, arabic)}
-            </span>
-          </button>
-        ))}
+                {file.summary ? (
+                  <span
+                    dir="auto"
+                    className="hidden truncate text-2xs text-muted-foreground sm:inline"
+                  >
+                    — {file.summary}
+                  </span>
+                ) : null}
+              </span>
+              <span className="shrink-0 text-3xs font-medium text-muted-foreground">
+                {getIdeFileActionLabel(file.action, arabic)}
+              </span>
+            </>
+          )
+          if (isFolderOrDelete) {
+            return (
+              <div
+                key={`${file.action}:${file.path}`}
+                className="flex w-full items-center justify-between gap-2.5 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5 text-start"
+                title={file.summary || file.path}
+              >
+                {content}
+              </div>
+            )
+          }
+          return (
+            <button
+              key={`${file.action}:${file.path}`}
+              type="button"
+              onClick={() => openWorkspaceFileInEditor(file.path, undefined, scratchWorkspace)}
+              className="flex w-full items-center justify-between gap-2.5 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5 text-start transition-colors hover:bg-accent/60"
+              title={file.summary || file.path}
+            >
+              {content}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -185,7 +207,9 @@ export function IdePlanNotesDisclosure({
         className="flex w-full items-center justify-between gap-2 rounded-md py-1 text-2xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <span className="inline-flex items-center gap-1.5">
-          {plan.risks.length > 0 ? <AlertTriangle className="size-3 text-amber-500" /> : null}
+          {plan.risks.length > 0 ? (
+            <AlertTriangle className="size-3 text-muted-foreground" />
+          ) : null}
           <span>{copy.notesAndVerification(notesCount)}</span>
         </span>
         <ChevronDown

@@ -1,74 +1,125 @@
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
+  ChevronDown,
+  GitPullRequest,
+  ListTodo,
+  MessageSquare,
+  Sparkles,
+  type LucideIcon
+} from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import type {
   IdeConversation,
   IdeExecutionMode,
   IdeProviderAgentOption
 } from '../../../../../shared/ide-agent/ide-agent-types'
+import { getIdeModeDescription, getIdeModeLabel } from './ide-chat-copy'
 import { IdeModelPicker } from './IdeModelPicker'
 
-const EXECUTION_MODES: { id: IdeExecutionMode; label: string; description: string }[] = [
-  { id: 'ask', label: 'Ask', description: 'Read-only Q&A, code explanations, no edits' },
-  { id: 'plan', label: 'Plan', description: 'Inspect workspace & propose approval plan' },
-  { id: 'agent', label: 'Agent', description: 'Plan -> Approve -> Execute edits & verify' },
-  { id: 'review', label: 'Review', description: 'Inspect diffs, quality, bugs & security' }
+export const IDE_EXECUTION_MODE_ORDER: readonly IdeExecutionMode[] = [
+  'agent',
+  'plan',
+  'ask',
+  'review'
 ]
 
-/** Mode + model pickers rendered inside the composer toolbar. */
+function isIdeExecutionMode(value: string): value is IdeExecutionMode {
+  return value === 'agent' || value === 'plan' || value === 'ask' || value === 'review'
+}
+
+const MODE_ICONS: Readonly<Record<IdeExecutionMode, LucideIcon>> = {
+  agent: Sparkles,
+  plan: ListTodo,
+  ask: MessageSquare,
+  review: GitPullRequest
+}
+
+/** Cursor-style Mode + Model pills rendered inside the composer toolbar. */
 export function IdeComposerModeModelPicker({
   conversation,
   providers,
-  providersLoading
+  providersLoading,
+  worktreeSelector
 }: {
   conversation: IdeConversation | null
   providers: IdeProviderAgentOption[]
   providersLoading: boolean
+  worktreeSelector?: string | null
 }) {
   const updateSettings = useIdeAgentStore((s) => s.updateSettings)
 
   const activeMode: IdeExecutionMode = conversation?.mode ?? 'agent'
+  const ActiveIcon = MODE_ICONS[activeMode]
+  const activeLabel = getIdeModeLabel(activeMode)
 
   return (
-    <>
-      <Select
-        value={activeMode}
-        onValueChange={(value) => {
-          const nextMode = value as IdeExecutionMode
-          if (conversation) {
-            void updateSettings({ conversationId: conversation.id, mode: nextMode })
-          }
-        }}
-      >
-        <SelectTrigger
-          size="sm"
-          density="compact"
-          disabled={!conversation}
-          className="h-6! w-[72px] shrink-0 gap-1 rounded-md border-0 bg-transparent px-1.5 py-0.5 text-[11px] font-medium shadow-none hover:bg-accent/60 [&_svg]:size-3.5"
-          data-testid="ide-mode-select"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {EXECUTION_MODES.map((m) => (
-            <SelectItem key={m.id} value={m.id} className="text-xs">
-              <span className="font-medium">{m.label}</span>
-              <span className="text-[10px] text-muted-foreground">{m.description}</span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div dir="ltr" className="flex min-w-0 items-center gap-1">
+      <DropdownMenu dir="ltr">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={!conversation}
+            data-testid="ide-mode-select"
+            aria-label={`Mode: ${activeLabel}`}
+            title={`${activeLabel} — ${getIdeModeDescription(activeMode)}`}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/50 px-2 text-2xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+          >
+            <ActiveIcon className="size-3 shrink-0 text-muted-foreground" />
+            <span>{activeLabel}</span>
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-64">
+          <DropdownMenuLabel className="flex items-center justify-between">
+            <span>Execution Mode</span>
+            <kbd
+              dir="ltr"
+              className="rounded border border-border/70 bg-muted/50 px-1 py-0 font-mono text-3xs font-normal text-muted-foreground"
+            >
+              Ctrl+.
+            </kbd>
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={activeMode}
+            onValueChange={(value) => {
+              if (conversation && isIdeExecutionMode(value)) {
+                void updateSettings({ conversationId: conversation.id, mode: value })
+              }
+            }}
+          >
+            {IDE_EXECUTION_MODE_ORDER.map((modeId) => {
+              const Icon = MODE_ICONS[modeId]
+              return (
+                <DropdownMenuRadioItem key={modeId} value={modeId} className="items-start">
+                  <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 leading-snug">
+                    <span className="block text-xs font-medium text-foreground">
+                      {getIdeModeLabel(modeId)}
+                    </span>
+                    <span className="block text-2xs text-muted-foreground">
+                      {getIdeModeDescription(modeId)}
+                    </span>
+                  </span>
+                </DropdownMenuRadioItem>
+              )
+            })}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <IdeModelPicker
         conversation={conversation}
         providers={providers}
         providersLoading={providersLoading}
+        worktreeSelector={worktreeSelector}
       />
-    </>
+    </div>
   )
 }

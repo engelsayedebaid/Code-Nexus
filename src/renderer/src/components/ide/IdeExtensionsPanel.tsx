@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Loader2, Palette, X } from 'lucide-react'
-import type {
-  OpenVsxExtensionSummary,
-  OpenVsxInstalledExtension,
-  OpenVsxSearchSortBy
+import { ChevronDown, ChevronRight, Loader2, RotateCcw, X } from 'lucide-react'
+import {
+  formatOpenVsxErrorMessage,
+  toOpenVsxPluginKey,
+  type OpenVsxExtensionSummary,
+  type OpenVsxInstalledExtension,
+  type OpenVsxSearchSortBy
 } from '../../../../shared/openvsx/openvsx-types'
-import { useTranslate } from '@/i18n/use-translate'
 import { applyPluginThemesNow } from '@/components/plugins/state/plugin-theme-apply'
 import { useOpenVsxStore } from '@/store/plugins/openvsx/use-openvsx-store'
 import { IdeExtensionDetailView } from './IdeExtensionDetailView'
@@ -34,8 +35,6 @@ export function IdeExtensionsPanel({
   onFilterModeChange,
   refreshToken
 }: IdeExtensionsPanelProps): React.JSX.Element {
-  const t = useTranslate()
-
   const installed = useOpenVsxStore((s) => s.installed)
   const loadingInstalled = useOpenVsxStore((s) => s.loadingInstalled)
   const busyById = useOpenVsxStore((s) => s.busyById)
@@ -55,10 +54,7 @@ export function IdeExtensionsPanel({
   const [installedExpanded, setInstalledExpanded] = useState(true)
   const [marketplaceExpanded, setMarketplaceExpanded] = useState(true)
   const [selectedExtension, setSelectedExtension] = useState<OpenVsxExtensionSummary | null>(null)
-  const [statusBanner, setStatusBanner] = useState<{
-    message: string
-    themePluginKey?: string
-  } | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   const searchSequenceRef = useRef(0)
 
@@ -88,11 +84,7 @@ export function IdeExtensionsPanel({
       setSearchError(null)
 
       const category =
-        mode === 'themes'
-          ? 'Themes'
-          : mode === 'languages'
-            ? 'Programming Languages'
-            : undefined
+        mode === 'themes' ? 'Themes' : mode === 'languages' ? 'Programming Languages' : undefined
       const effectiveSort =
         nextQuery.trim().length === 0 && sort === 'relevance' ? 'downloadCount' : sort
 
@@ -110,7 +102,7 @@ export function IdeExtensionsPanel({
         }
       } catch (error) {
         if (seq === searchSequenceRef.current) {
-          setSearchError(error instanceof Error ? error.message : String(error))
+          setSearchError(formatOpenVsxErrorMessage(error))
         }
       } finally {
         if (seq === searchSequenceRef.current) {
@@ -142,28 +134,46 @@ export function IdeExtensionsPanel({
       version,
       includePackAndDependencies
     })
-    if (outcome) {
-      setStatusBanner(summarizeOpenVsxInstallOutcome(outcome))
+    if (!outcome) {
+      return
+    }
+    const summary = summarizeOpenVsxInstallOutcome(outcome)
+    if (summary.themePluginKey) {
+      const applied = await applyPluginThemesNow(summary.themePluginKey)
+      setStatusMessage(applied ? null : summary.message)
+      return
+    }
+    setStatusMessage(summary.message)
+  }
+
+  const handleToggleEnabled = async (extensionId: string, enabled: boolean): Promise<void> => {
+    await setExtensionEnabled(extensionId, enabled)
+    if (!enabled) {
+      return
+    }
+    const updated = useOpenVsxStore
+      .getState()
+      .installed.find((item) => item.id.toLowerCase() === extensionId.toLowerCase())
+    if (
+      updated &&
+      (updated.contributions.themes.length > 0 || updated.contributions.iconThemes.length > 0)
+    ) {
+      await applyPluginThemesNow(toOpenVsxPluginKey(updated.id))
     }
   }
 
   const handleUninstall = async (extensionId: string): Promise<void> => {
-    const removed = await uninstallExtension(extensionId)
-    if (removed) {
-      setStatusBanner({ message: `Uninstalled ${extensionId}.` })
+    if (await uninstallExtension(extensionId)) {
+      setStatusMessage(`Uninstalled ${extensionId}.`)
     }
   }
 
   const handleSelectExtensionById = (extensionId: string): void => {
     const lower = extensionId.toLowerCase()
-    const installedMatch = installedMap.get(lower)
-    if (installedMatch) {
-      setSelectedExtension(installedExtensionToSummary(installedMatch))
-      return
-    }
-    const marketplaceMatch = searchResults.find((item) => item.id.toLowerCase() === lower)
-    if (marketplaceMatch) {
-      setSelectedExtension(marketplaceMatch)
+    const match =
+      installedMap.get(lower) ?? searchResults.find((item) => item.id.toLowerCase() === lower)
+    if (match) {
+      setSelectedExtension('enabled' in match ? installedExtensionToSummary(match) : match)
       return
     }
     const dotIdx = extensionId.indexOf('.')
@@ -231,18 +241,19 @@ export function IdeExtensionsPanel({
         onBack={() => setSelectedExtension(null)}
         onInstall={(id, version) => handleInstall(id, version, true)}
         onUninstall={handleUninstall}
-        onSetEnabled={setExtensionEnabled}
+        onSetEnabled={handleToggleEnabled}
         onSelectExtensionById={handleSelectExtensionById}
-        onStatusBanner={(message) => setStatusBanner({ message })}
+        onStatusBanner={(msg) => setStatusMessage(msg)}
       />
     )
   }
 
   const showInstalledSection = filterMode !== 'marketplace' && filteredInstalled.length > 0
   const showMarketplaceSection = filterMode !== 'installed'
+  const errorText = storeError ?? searchError
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div dir="ltr" className="flex min-h-0 flex-1 flex-col overflow-hidden text-left">
       <IdeExtensionsFilterControls
         query={query}
         onQueryChange={setQuery}
@@ -254,66 +265,57 @@ export function IdeExtensionsPanel({
         installedCount={installed.length}
       />
 
-      {(statusBanner || storeError || searchError) && (
-        <div className="shrink-0 space-y-1 border-b border-border/70 bg-muted/40 px-2.5 py-1.5 text-2xs">
-          {(storeError || searchError) && (
+      {(statusMessage || errorText) && (
+        <div className="shrink-0 space-y-1 border-b border-border/70 bg-muted/35 px-2.5 py-1.5 text-2xs">
+          {errorText ? (
             <div className="flex items-start justify-between gap-2 text-destructive">
-              <span className="min-w-0 break-words">{storeError ?? searchError}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  clearStoreError()
-                  setSearchError(null)
-                }}
-                className="shrink-0 rounded p-0.5 hover:bg-accent"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          )}
-          {statusBanner && (
-            <div className="flex items-start justify-between gap-2 text-foreground">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="leading-snug">{statusBanner.message}</p>
-                {statusBanner.themePluginKey && (
+              <span className="min-w-0 break-words leading-snug">{errorText}</span>
+              <div className="flex shrink-0 items-center gap-1">
+                {searchError ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      const key = statusBanner.themePluginKey!
-                      void applyPluginThemesNow(key).then((applied) => {
-                        setStatusBanner({
-                          message: applied
-                            ? 'Theme applied.'
-                            : 'Theme was not found in active theme registry.'
-                        })
-                      })
-                    }}
-                    className="inline-flex cursor-pointer items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-3xs font-medium text-primary-foreground hover:bg-primary/90"
+                    onClick={() => void executeSearch(query, filterMode, sortBy)}
+                    className="inline-flex h-5 items-center gap-1 rounded border border-border bg-background px-1.5 text-3xs font-medium text-foreground hover:bg-accent"
                   >
-                    <Palette className="size-2.5" />
-                    Apply Theme Now
+                    <RotateCcw className="size-2.5" />
+                    <span>Retry</span>
                   </button>
-                )}
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearStoreError()
+                    setSearchError(null)
+                  }}
+                  className="shrink-0 rounded p-0.5 hover:bg-accent"
+                >
+                  <X className="size-3" />
+                </button>
               </div>
+            </div>
+          ) : null}
+          {statusMessage ? (
+            <div className="flex items-start justify-between gap-2 text-muted-foreground">
+              <p className="min-w-0 flex-1 leading-snug">{statusMessage}</p>
               <button
                 type="button"
-                onClick={() => setStatusBanner(null)}
+                onClick={() => setStatusMessage(null)}
                 className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <X className="size-3" />
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-sleek">
+      <div className="scrollbar-sleek min-h-0 flex-1 overflow-y-auto">
         {showInstalledSection && (
           <div className="border-b border-border/50">
             <button
               type="button"
               onClick={() => setInstalledExpanded((v) => !v)}
-              className="flex h-7 w-full cursor-pointer items-center justify-between px-2 text-left text-3xs font-semibold tracking-wider text-muted-foreground uppercase hover:bg-accent/50"
+              className="flex h-7 w-full cursor-pointer items-center justify-between px-2 text-left text-3xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/50"
             >
               <span className="inline-flex items-center gap-1">
                 {installedExpanded ? (
@@ -321,7 +323,7 @@ export function IdeExtensionsPanel({
                 ) : (
                   <ChevronRight className="size-3.5" />
                 )}
-                {t('ide.openVsx.installedHeading', 'Installed')}
+                Installed
               </span>
               <span className="rounded bg-muted px-1.5 py-0 text-3xs font-medium text-foreground">
                 {filteredInstalled.length}
@@ -335,9 +337,8 @@ export function IdeExtensionsPanel({
                     ext={ext}
                     busy={busyById[ext.id.toLowerCase()]}
                     onSelect={() => setSelectedExtension(installedExtensionToSummary(ext))}
-                    onSetEnabled={setExtensionEnabled}
+                    onSetEnabled={handleToggleEnabled}
                     onUninstall={handleUninstall}
-                    onStatusMessage={(message) => setStatusBanner({ message })}
                   />
                 ))}
               </div>
@@ -347,7 +348,7 @@ export function IdeExtensionsPanel({
 
         {filterMode === 'installed' && filteredInstalled.length === 0 && !loadingInstalled && (
           <div className="px-3 py-6 text-center text-2xs text-muted-foreground">
-            {t('ide.openVsx.noInstalledMatches', 'No installed Open VSX extensions match.')}
+            No installed Open VSX extensions match.
           </div>
         )}
 
@@ -356,7 +357,7 @@ export function IdeExtensionsPanel({
             <button
               type="button"
               onClick={() => setMarketplaceExpanded((v) => !v)}
-              className="flex h-7 w-full cursor-pointer items-center justify-between px-2 text-left text-3xs font-semibold tracking-wider text-muted-foreground uppercase hover:bg-accent/50"
+              className="flex h-7 w-full cursor-pointer items-center justify-between px-2 text-left text-3xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/50"
             >
               <span className="inline-flex items-center gap-1">
                 {marketplaceExpanded ? (
@@ -364,12 +365,12 @@ export function IdeExtensionsPanel({
                 ) : (
                   <ChevronRight className="size-3.5" />
                 )}
-                {t('ide.openVsx.marketplaceHeading', 'Marketplace')}
+                Marketplace
               </span>
               <span className="inline-flex items-center gap-1">
                 {searching && <Loader2 className="size-3 animate-spin" />}
                 {totalSize > 0 && !searching && (
-                  <span className="text-3xs font-normal text-muted-foreground tabular-nums">
+                  <span className="tabular-nums text-3xs font-normal text-muted-foreground">
                     {formatExtensionMetricCount(totalSize)}
                   </span>
                 )}
@@ -381,13 +382,11 @@ export function IdeExtensionsPanel({
                 {searching && marketplaceVisible.length === 0 ? (
                   <div className="flex items-center justify-center gap-2 py-8 text-2xs text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" />
-                    <span>{t('ide.openVsx.searching', 'Searching Open VSX...')}</span>
+                    <span>Searching Open VSX...</span>
                   </div>
                 ) : marketplaceVisible.length === 0 ? (
                   <div className="px-3 py-6 text-center text-2xs text-muted-foreground">
-                    {searchError
-                      ? t('ide.openVsx.searchFailed', 'Could not reach Open VSX registry.')
-                      : t('ide.openVsx.noResults', 'No extensions found.')}
+                    {searchError ? 'Could not reach Open VSX registry.' : 'No extensions found.'}
                   </div>
                 ) : (
                   <div className="divide-y divide-border/30">

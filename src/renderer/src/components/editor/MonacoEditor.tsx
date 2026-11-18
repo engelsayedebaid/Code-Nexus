@@ -29,6 +29,7 @@ import { useMonacoEditorDecorations } from './use-monaco-editor-decorations'
 import { useMonacoEditorMount } from './use-monaco-editor-mount'
 import { snapshotMonacoViewState } from './monaco-view-state-persistence'
 import { MonacoMarkdownAnnotationOverlay } from './markdown-source-tools/monaco/MonacoMarkdownAnnotationOverlay'
+import { IdeMonacoInlineAssist } from '@/components/ide/IdeMonacoInlineAssist'
 import { usePluginSyntaxLanguage } from './use-plugin-syntax-language'
 import { useOpenVsxSnippetsLanguage } from '@/lib/monaco-languages/openvsx-snippets-runtime'
 import {
@@ -206,6 +207,7 @@ export default function MonacoEditor({
     mountedEditor,
     content,
     language,
+    worktreeId,
     relativePath,
     markdownDocuments,
     conflictDecorationsEnabled
@@ -338,6 +340,13 @@ export default function MonacoEditor({
       />
 
       {toastNode}
+      <IdeMonacoInlineAssist
+        editor={mountedEditor}
+        containerRef={editorContainerRef}
+        relativePath={relativePath}
+        worktreeId={worktreeId}
+        readOnly={readOnly || passiveMirror}
+      />
       <MonacoGutterContextMenu
         open={gutterMenuOpen}
         onOpenChange={setGutterMenuOpen}

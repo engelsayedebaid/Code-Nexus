@@ -25,8 +25,8 @@ export async function executeWorkspaceSearchOrSymbolTool(params: {
     case 'get_workspace_tree': {
       const q = typeof call.args.query === 'string' ? call.args.query : ''
       const files = gateway.searchFiles
-        ? await gateway.searchFiles(q, 120)
-        : (await gateway.inspectWorkspace(q ? [q] : [])).fileList.slice(0, 120)
+        ? await gateway.searchFiles(q, 120, signal)
+        : (await gateway.inspectWorkspace(q ? [q] : [], signal)).fileList.slice(0, 120)
       const recorded = budget.recordText(`tree:${q}`, files.join('\n') || '(no files matched)')
       return {
         tool: call.tool,
@@ -39,7 +39,7 @@ export async function executeWorkspaceSearchOrSymbolTool(params: {
 
     case 'search_files': {
       const q = typeof call.args.query === 'string' ? call.args.query : ''
-      const hits = gateway.searchFiles ? await gateway.searchFiles(q, 50) : []
+      const hits = gateway.searchFiles ? await gateway.searchFiles(q, 50, signal) : []
       return {
         tool: call.tool,
         ok: true,
@@ -68,7 +68,7 @@ export async function executeWorkspaceSearchOrSymbolTool(params: {
       }
       const pathPrefix = typeof call.args.pathPrefix === 'string' ? call.args.pathPrefix : undefined
       const hits = gateway.searchCode
-        ? await gateway.searchCode(query, { pathPrefix, maxResults: 35 })
+        ? await gateway.searchCode(query, { pathPrefix, maxResults: 35, signal })
         : []
       const text =
         hits.map((h) => `${h.relativePath}:${h.line}: ${h.preview}`).join('\n') ||

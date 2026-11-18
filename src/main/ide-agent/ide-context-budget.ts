@@ -38,7 +38,10 @@ export class IdeContextBudgetTracker {
         text: `[Unchanged since earlier read in this session (${label}, hash ${hash})]`
       }
     }
-    const available = this.remainingChars()
+    const isExplicitRange = label.startsWith('range:')
+    const available = isExplicitRange
+      ? Math.max(this.remainingChars(), 4_000)
+      : this.remainingChars()
     if (available <= 200) {
       return {
         included: false,
@@ -46,11 +49,13 @@ export class IdeContextBudgetTracker {
         text: `[Context budget reached (${this.usedChars}/${this.budgetChars} chars); use read_file_range for ${label}]`
       }
     }
-    const clipped =
-      text.length > available
-        ? `${text.slice(0, available)}\n... [truncated to fit context budget]`
-        : text
-    this.loadedHashes.set(label, hash)
+    const truncated = text.length > available
+    const clipped = truncated
+      ? `${text.slice(0, available)}\n... [truncated to fit context budget]`
+      : text
+    if (!truncated) {
+      this.loadedHashes.set(label, hash)
+    }
     this.usedChars += clipped.length
     return { included: true, deduplicated: false, text: clipped }
   }

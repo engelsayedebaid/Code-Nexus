@@ -11,7 +11,10 @@ export function restoreActiveTabIdByWorktree({
   activeWorktreeId,
   activeTabId
 }: {
-  session: Pick<WorkspaceSessionState, 'activeTabIdByWorktree'>
+  session: Pick<
+    WorkspaceSessionState,
+    'activeTabIdByWorktree' | 'unifiedTabs' | 'activeTabTypeByWorktree'
+  >
   validWorktreeIds: ReadonlySet<string>
   validTabIds: ReadonlySet<string>
   canonicalTabIdBySubsumedTabId: ReadonlyMap<string, string>

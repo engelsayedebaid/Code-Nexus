@@ -1,0 +1,50 @@
+.orca-ide-chat-markdown :is(ul, ol) {
+  padding-inline: 0;
+  list-style-position: outside;
+}
+
+.orca-ide-chat-markdown :is(ul, ol):not([dir='rtl']) {
+  direction: ltr;
+  text-align: left;
+  margin-left: 1.25rem;
+  margin-right: 0;
+}
+
+.orca-ide-chat-markdown :is(ul, ol)[dir='rtl'] {
+  direction: rtl;
+  text-align: right;
+  margin-right: 1.25rem;
+  margin-left: 0;
+}
+
+.orca-ide-chat-markdown :is(p, li, h1, h2, h3, h4, h5, h6, blockquote)[dir='rtl'] {
+  direction: rtl;
+  text-align: right;
+}
+
+.orca-ide-chat-markdown :is(p, li, h1, h2, h3, h4, h5, h6, blockquote)[dir='ltr'] {
+  direction: ltr;
+  text-align: left;
+}
+
+.orca-ide-chat-markdown li {
+  overflow-wrap: break-word;
+}
+
+.orca-ide-chat-markdown :not(pre) > code {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.orca-ide-chat-markdown pre {
+  direction: ltr;
+  text-align: left;
+}
+
+.orca-ide-user-bubble-markdown :first-child {
+  margin-top: 0;
+}
+
+.orca-ide-user-bubble-markdown :last-child {
+  margin-bottom: 0;
+}

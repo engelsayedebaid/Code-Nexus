@@ -1,6 +1,14 @@
 import type React from 'react'
 import { useMemo, useState } from 'react'
-import { ArrowDownAZ, Check, ChevronDown, History, Layers, Settings2 } from 'lucide-react'
+import {
+  ArrowDownAZ,
+  Check,
+  ChevronDown,
+  History,
+  Layers,
+  RefreshCw,
+  Settings2
+} from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Command,
@@ -19,6 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { cn } from '@/lib/class-names'
 import { AgentIcon } from '@/components/agent/icons/AgentIcon'
 import { AgentLetterIcon } from '@/components/agent/icons/agent-icon-glyphs'
 import { agentTypeToIconAgent } from '../../../../../shared/agent-status/presentation/agent-type-icon-agent'
@@ -78,13 +87,16 @@ const SORT_OPTIONS: { id: IdeModelPickerSort; label: string; icon: typeof Layers
 export function IdeModelPicker({
   conversation,
   providers,
-  providersLoading
+  providersLoading,
+  worktreeSelector
 }: {
   conversation: IdeConversation | null
   providers: IdeProviderAgentOption[]
   providersLoading: boolean
+  worktreeSelector?: string | null
 }) {
   const updateSettings = useIdeAgentStore((s) => s.updateSettings)
+  const refreshProviders = useIdeAgentStore((s) => s.refreshProviders)
   const [open, setOpen] = useState(false)
   const [providerFilter, setProviderFilter] = useState(readModelPickerProviderFilter)
   const [sort, setSort] = useState<IdeModelPickerSort>(readModelPickerSort)
@@ -97,9 +109,10 @@ export function IdeModelPicker({
     ? providerModels(activeProvider).find((m) => m.id === activeModelId)
     : undefined
 
-  const triggerLabel = providersLoading
-    ? 'Loading models...'
-    : (activeModel?.label ?? activeModelId ?? 'Select model')
+  const triggerLabel =
+    providersLoading && !activeModel && !activeModelId
+      ? 'Loading models...'
+      : (activeModel?.label ?? (activeModelId || 'Select model'))
   const triggerTitle = activeProvider ? `${activeProvider.label} · ${triggerLabel}` : triggerLabel
 
   const filteredProviders = useMemo(() => {
@@ -132,6 +145,7 @@ export function IdeModelPicker({
       <CommandItem
         key={value}
         value={value}
+        selection="palette"
         aria-label={`${provider.label} ${model.label}`}
         keywords={[provider.label, model.label, model.id, provider.id]}
         disabled={!provider.available}
@@ -217,14 +231,14 @@ export function IdeModelPicker({
           disabled={!conversation}
           data-testid="ide-model-select"
           title={triggerTitle}
-          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 text-[11px] text-foreground shadow-none transition-colors hover:bg-accent/60 disabled:pointer-events-none disabled:opacity-50"
+          className="inline-flex h-6 max-w-[175px] min-w-0 items-center gap-1.5 rounded-full px-2 text-2xs text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         >
           {activeProvider ? (
             <span className="flex size-3.5 shrink-0 items-center justify-center">
               {providerIcon(activeProvider, 12)}
             </span>
           ) : null}
-          <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+          <span className="min-w-0 truncate">{triggerLabel}</span>
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -235,28 +249,36 @@ export function IdeModelPicker({
         className="w-[min(340px,calc(100vw-24px))] p-0"
       >
         {providers.length === 0 && !providersLoading ? (
-          <div className="px-3 py-4 text-center text-[11px] text-muted-foreground">
-            No AI CLI agents detected
+          <div className="space-y-2 px-3 py-4 text-center text-xs text-muted-foreground">
+            <p>No AI CLI agents detected</p>
+            <button
+              type="button"
+              onClick={openAgentSettings}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-2xs text-foreground hover:bg-accent"
+            >
+              <Settings2 className="size-3" />
+              Configure agents
+            </button>
           </div>
         ) : (
-          <Command label="Search all models" className="rounded-md">
-            <CommandInput placeholder="Search all models" className="h-9 text-[12px]" />
+          <Command density="model" label="Search all models">
+            <CommandInput placeholder="Search all models" />
             <div className="flex items-center gap-1 border-b border-border/60 px-2 py-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 text-[11px] text-foreground transition-colors hover:bg-accent/60"
+                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 text-xs text-foreground transition-colors hover:bg-accent/60"
                   >
                     {activeFilterProvider ? (
                       <span className="flex size-3.5 shrink-0 items-center justify-center">
                         {providerIcon(activeFilterProvider, 12)}
                       </span>
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate text-left">
+                    <span className="min-w-0 flex-1 truncate text-start">
                       {activeFilterProvider?.label ?? 'All providers'}
                     </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                    <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
                       {totalModels}
                     </span>
                     <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
@@ -285,13 +307,11 @@ export function IdeModelPicker({
                             {providerIcon(provider, 13)}
                           </span>
                           <span className="min-w-0 flex-1 truncate">{provider.label}</span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                          <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
                             {providerModels(provider).length}
                           </span>
                           {!provider.available ? (
-                            <span className="shrink-0 text-[10px] text-destructive">
-                              Unavailable
-                            </span>
+                            <span className="shrink-0 text-3xs text-destructive">Unavailable</span>
                           ) : null}
                         </span>
                       </DropdownMenuRadioItem>
@@ -304,6 +324,17 @@ export function IdeModelPicker({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              <button
+                type="button"
+                aria-label="Refresh AI models"
+                title="Refresh AI models"
+                disabled={providersLoading}
+                onClick={() => void refreshProviders(worktreeSelector ?? undefined)}
+                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:opacity-50"
+              >
+                <RefreshCw className={cn('size-3.5', providersLoading && 'animate-spin')} />
+              </button>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -341,7 +372,7 @@ export function IdeModelPicker({
             </div>
             <CommandList className="max-h-64 min-h-24 scrollbar-sleek scroll-pb-2">
               <CommandEmpty>
-                <span className="text-[11px]">No models found</span>
+                <span className="text-xs">No models found</span>
               </CommandEmpty>
               {renderGroups()}
             </CommandList>

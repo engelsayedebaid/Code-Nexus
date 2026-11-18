@@ -1,6 +1,17 @@
 import { useState } from 'react'
-import { AlertCircle, Braces, FileText, Folder, Loader2, TextSelect, X } from 'lucide-react'
+import {
+  AlertCircle,
+  Braces,
+  FileCode2,
+  FileText,
+  Folder,
+  Loader2,
+  Plus,
+  TextSelect,
+  X
+} from 'lucide-react'
 import { AppIcon } from '@/components/icons/app-icon'
+import { getIntlLocale } from '@/i18n/i18n'
 import { cn } from '@/lib/class-names'
 import type { IdeContextBudgetSummary } from '../../../../../shared/ide-agent/ide-agent-events'
 import type { IdeChatAttachment } from '../../../../../shared/ide-agent/ide-agent-types'
@@ -23,9 +34,17 @@ function AttachmentKindIcon({ kind }: { kind: IdeChatAttachment['kind'] }) {
   }
 }
 
+export type ActiveEditorContextHint = {
+  label: string
+  relativePath: string
+  selectionRange?: { start: number; end: number }
+}
+
 export function IdeComposerAttachmentsBar({
   conversationId,
   attachments,
+  activeEditorHint = null,
+  onPinActiveEditorHint,
   contextBudget,
   savingPasteCount = 0,
   pasteNotice = null,
@@ -35,6 +54,8 @@ export function IdeComposerAttachmentsBar({
 }: {
   conversationId: string
   attachments: IdeChatAttachment[]
+  activeEditorHint?: ActiveEditorContextHint | null
+  onPinActiveEditorHint?: () => void
   contextBudget?: IdeContextBudgetSummary
   savingPasteCount?: number
   pasteNotice?: string | null
@@ -43,11 +64,18 @@ export function IdeComposerAttachmentsBar({
   onRemove: (conversationId: string, attachmentId: string) => void
 }) {
   const [previewAttachment, setPreviewAttachment] = useState<IdeChatAttachment | null>(null)
-  const showBudget =
-    Boolean(contextBudget) &&
-    ((contextBudget?.estimatedTokens ?? 0) > 0 || (contextBudget?.stackLabels?.length ?? 0) > 0)
+  const usageRatio =
+    contextBudget && contextBudget.budgetTokens > 0
+      ? contextBudget.estimatedTokens / contextBudget.budgetTokens
+      : 0
+  const showHighUsageIndicator = usageRatio >= 0.65
+  const hasTopPills =
+    Boolean(activeEditorHint) ||
+    attachments.length > 0 ||
+    savingPasteCount > 0 ||
+    showHighUsageIndicator
 
-  if (attachments.length === 0 && !showBudget && savingPasteCount === 0 && !pasteNotice) {
+  if (!hasTopPills && !pasteNotice) {
     return null
   }
 
@@ -56,9 +84,36 @@ export function IdeComposerAttachmentsBar({
     : undefined
 
   return (
-    <div className="space-y-1.5 px-3 pt-2.5">
-      {attachments.length > 0 || savingPasteCount > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
+    <div className="space-y-1.5 px-2.5 pt-2">
+      {hasTopPills ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {activeEditorHint ? (
+            <button
+              type="button"
+              onClick={onPinActiveEditorHint}
+              title={`Include ${activeEditorHint.relativePath} in context`}
+              className="group/ctx inline-flex h-5 max-w-[200px] items-center gap-1 rounded-md border border-dashed border-border/80 bg-muted/25 px-1.5 text-2xs text-muted-foreground transition-colors hover:border-border hover:bg-accent/60 hover:text-foreground"
+            >
+              {activeEditorHint.selectionRange ? (
+                <TextSelect className="size-3 shrink-0" />
+              ) : (
+                <FileCode2 className="size-3 shrink-0" />
+              )}
+              <span dir="ltr" className="truncate font-mono">
+                {activeEditorHint.label}
+              </span>
+              {activeEditorHint.selectionRange ? (
+                <span className="shrink-0 font-mono text-3xs text-muted-foreground/80">
+                  L{activeEditorHint.selectionRange.start}
+                  {activeEditorHint.selectionRange.end > activeEditorHint.selectionRange.start
+                    ? `-${activeEditorHint.selectionRange.end}`
+                    : ''}
+                </span>
+              ) : null}
+              <Plus className="size-2.5 shrink-0 opacity-60 group-hover/ctx:opacity-100" />
+            </button>
+          ) : null}
+
           {attachments.map((att) => {
             const displayName = resolveIdeAttachmentDisplayName(att, attachments)
             const subtitle = resolveIdeAttachmentSubtitle(att)
@@ -67,12 +122,12 @@ export function IdeComposerAttachmentsBar({
                 <div
                   key={att.id}
                   data-testid="ide-composer-pasted-card"
-                  className="inline-flex max-w-full items-center gap-1 rounded-lg border border-border/80 bg-background/80 pr-1 text-left transition-colors hover:bg-muted/60"
+                  className="inline-flex max-w-full items-center gap-1 rounded-lg border border-border/80 bg-background/80 pr-1 text-start transition-colors hover:bg-muted/60"
                 >
                   <button
                     type="button"
                     onClick={() => setPreviewAttachment(att)}
-                    className="inline-flex min-w-0 items-center gap-2 px-2 py-1 text-left"
+                    className="inline-flex min-w-0 items-center gap-2 px-2 py-1 text-start"
                     aria-label={`Preview ${displayName}`}
                   >
                     <FileText className="size-3.5 shrink-0 text-muted-foreground" />
@@ -80,7 +135,7 @@ export function IdeComposerAttachmentsBar({
                       <span className="block truncate text-xs font-medium text-foreground">
                         {displayName}
                       </span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
+                      <span className="block truncate text-2xs text-muted-foreground">
                         {subtitle}
                       </span>
                     </span>
@@ -100,10 +155,10 @@ export function IdeComposerAttachmentsBar({
               <span
                 key={att.id}
                 className={cn(
-                  'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-3xs',
+                  'inline-flex h-5 items-center gap-1 rounded-md border px-1.5 text-2xs',
                   att.sensitiveWarning
-                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
-                    : 'border-border bg-muted/40 text-foreground'
+                    ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                    : 'border-border bg-muted/45 text-foreground'
                 )}
               >
                 {att.kind === 'image' && att.dataUrl ? (
@@ -132,10 +187,20 @@ export function IdeComposerAttachmentsBar({
               </span>
             )
           })}
+
           {savingPasteCount > 0 ? (
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-2 py-1 text-2xs text-muted-foreground">
+            <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-border/70 bg-muted/40 px-2 text-2xs text-muted-foreground">
               <Loader2 className="size-3 animate-spin" />
               <span>Preparing pasted text…</span>
+            </span>
+          ) : null}
+
+          {showHighUsageIndicator && contextBudget ? (
+            <span
+              className="ms-auto shrink-0 font-mono text-3xs tabular-nums text-muted-foreground"
+              title={`Context usage: ~${contextBudget.estimatedTokens.toLocaleString(getIntlLocale())} / ${contextBudget.budgetTokens.toLocaleString(getIntlLocale())} tokens`}
+            >
+              {Math.min(100, Math.round(usageRatio * 100))}% ctx
             </span>
           ) : null}
         </div>
@@ -144,41 +209,22 @@ export function IdeComposerAttachmentsBar({
       {pasteNotice ? (
         <div
           role="alert"
-          className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-2xs text-destructive"
+          className="flex items-start justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-1.5 text-2xs text-foreground"
         >
-          <span className="flex items-center gap-1.5">
-            <AlertCircle className="size-3.5 shrink-0" />
-            <span>{pasteNotice}</span>
+          <span className="flex min-w-0 items-start gap-1.5 leading-relaxed">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+            <span className="min-w-0 break-words">{pasteNotice}</span>
           </span>
           {onDismissPasteNotice ? (
             <button
               type="button"
               onClick={onDismissPasteNotice}
               aria-label="Dismiss paste error"
-              className="shrink-0 hover:opacity-80"
+              className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <X className="size-3" />
             </button>
           ) : null}
-        </div>
-      ) : null}
-
-      {showBudget && contextBudget ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-3xs text-muted-foreground">
-          <span className="truncate font-mono">
-            {contextBudget.stackLabels && contextBudget.stackLabels.length > 0
-              ? contextBudget.stackLabels.slice(0, 3).join(' · ')
-              : 'Workspace context'}
-          </span>
-          <span className="shrink-0 font-mono">
-            {contextBudget.isEstimate ? '~' : ''}
-            {contextBudget.estimatedTokens.toLocaleString()} /{' '}
-            {Math.max(1, Math.round(contextBudget.budgetTokens / 1000))}k tok
-            {contextBudget.isEstimate ? ' est.' : ''}
-            {contextBudget.deduplicatedReads > 0
-              ? ` · ${contextBudget.deduplicatedReads} cached`
-              : ''}
-          </span>
         </div>
       ) : null}
 

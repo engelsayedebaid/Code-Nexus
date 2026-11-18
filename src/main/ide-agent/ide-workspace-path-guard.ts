@@ -1,10 +1,18 @@
-import { existsSync } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   isUnsafeRelativePath,
   normalizeWorkspaceRelativePath
 } from '../../shared/ide-agent/ide-plan-policy'
-import { realpath } from 'node:fs/promises'
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await stat(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export async function resolveSafeWorkspacePath(
   workspacePath: string,
@@ -26,14 +34,14 @@ export async function resolveSafeWorkspacePath(
     throw new Error(`Path escapes workspace root: ${rawRelativePath}`)
   }
   let probe = candidate
-  while (!existsSync(probe)) {
+  while (!(await pathExists(probe))) {
     const parent = dirname(probe)
     if (parent === probe) {
       break
     }
     probe = parent
   }
-  if (existsSync(probe)) {
+  if (await pathExists(probe)) {
     const probeReal = await realpath(probe)
     const cmpProbe = process.platform === 'win32' ? probeReal.toLowerCase() : probeReal
     if (cmpProbe !== normalizedRoot && !cmpProbe.startsWith(prefix)) {

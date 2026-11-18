@@ -156,9 +156,7 @@ export async function extractVsixSyntaxes(
   const languages = Array.isArray(rawLanguages)
     ? (rawLanguages as VsCodeLanguageContribution[])
     : []
-  const grammars = Array.isArray(rawGrammars)
-    ? (rawGrammars as VsCodeGrammarContribution[])
-    : []
+  const grammars = Array.isArray(rawGrammars) ? (rawGrammars as VsCodeGrammarContribution[]) : []
 
   const languageById = new Map<
     string,

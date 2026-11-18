@@ -8,6 +8,7 @@ import {
   runningAgentSendTargetAgentType
 } from '../../../lib/agent-session/messaging/running-agent-targets'
 import { translate } from '@/i18n/i18n'
+import { performIdeModeSwitchHandoff } from '@/components/ide/ide-mode-switch-handoff'
 import { createUiActivityActions } from './ui-slice-activity-actions'
 
 let agentSendTargetModeInstanceCounter = 0
@@ -25,6 +26,8 @@ export function createUiAgentActions(
   | 'sidebarOpen'
   | 'appMode'
   | 'setAppMode'
+  | 'ideDevelopmentView'
+  | 'setIdeDevelopmentView'
   | 'ideSidebarView'
   | 'setIdeSidebarView'
   | 'ideFollowAgent'
@@ -53,7 +56,15 @@ export function createUiAgentActions(
   return {
     ...createUiActivityActions(set, get),
     appMode: 'command',
-    setAppMode: (mode) => set({ appMode: mode }),
+    setAppMode: (mode) => performIdeModeSwitchHandoff(get, set, mode),
+    ideDevelopmentView: 'files',
+    setIdeDevelopmentView: (view) =>
+      set((s) => ({
+        ideDevelopmentView: view,
+        ...(view === 'files' || view === 'search'
+          ? { rightSidebarExplorerView: view }
+          : { rightSidebarExplorerView: s.rightSidebarExplorerView })
+      })),
     ideSidebarView: 'ai-chat',
     setIdeSidebarView: (view) => set({ ideSidebarView: view }),
     ideFollowAgent: true,

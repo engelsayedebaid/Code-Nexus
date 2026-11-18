@@ -13,10 +13,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/class-names'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import { useAppStore } from '@/store'
-import {
-  hasArabicText,
-  isArabicIdeConversation
-} from '../../../../../shared/ide-agent/ide-language'
 import type {
   IdeProviderAgentOption,
   IdeTaskPlan
@@ -64,21 +60,22 @@ export function IdePlanProposalCard({
   const [busyDecision, setBusyDecision] = useState<string | null>(null)
   const [showAllFiles, setShowAllFiles] = useState(!compact)
 
-  const arabic =
-    arabicOverride ??
-    (hasArabicText(`${plan.requestSummary ?? ''}\n${plan.objective}\n${plan.intro ?? ''}`) ||
-      isArabicIdeConversation(conversation?.messages))
-  const copy = getIdeChatCopy(arabic)
-  const statusMeta = planStatusMeta(plan.status, arabic)
+  const arabic = Boolean(arabicOverride)
+  const copy = getIdeChatCopy()
+  const statusMeta = planStatusMeta(plan.status)
   const canDecide = plan.status === 'awaiting_approval' || plan.status === 'draft'
-  const canReject = canDecide || plan.status === 'executing'
+  const scratchWorkspace = conversation?.workspaceKey.startsWith('ide-scratch:') === true
 
-  const modelChoices = providers.flatMap((provider) =>
-    provider.models.map((model) => ({
+  const modelChoices = providers.flatMap((provider) => {
+    const models =
+      provider.models.length > 0
+        ? provider.models
+        : [{ id: provider.defaultModelId, label: provider.defaultModelId }]
+    return models.map((model) => ({
       value: `${provider.id}::${model.id}`,
       label: `${provider.label} · ${model.label}`
     }))
-  )
+  })
 
   const handleDecision = async (decision: 'approve' | 'reject') => {
     setBusyDecision(decision)
@@ -101,9 +98,7 @@ export function IdePlanProposalCard({
     }
     setBusyDecision('revise')
     try {
-      setShowRevision(false)
-      setRevisionNote('')
-      await decidePlan({
+      const ok = await decidePlan({
         conversationId,
         planId: plan.id,
         decision: 'revise',
@@ -111,6 +106,10 @@ export function IdePlanProposalCard({
         agentId,
         modelId
       })
+      if (ok) {
+        setShowRevision(false)
+        setRevisionNote('')
+      }
     } finally {
       setBusyDecision(null)
     }
@@ -131,11 +130,7 @@ export function IdePlanProposalCard({
       plan.affectedFiles.some((file) => file.path === change.relativePath)
     )
     if (firstChange) {
-      openWorkspaceFileInEditor(
-        firstChange.relativePath,
-        undefined,
-        conversation?.workspaceKey.startsWith('ide-scratch:') === true
-      )
+      openWorkspaceFileInEditor(firstChange.relativePath, undefined, scratchWorkspace)
     }
   }
 
@@ -149,9 +144,9 @@ export function IdePlanProposalCard({
 
   return (
     <div
-      dir={arabic ? 'rtl' : 'ltr'}
+      dir="ltr"
       data-testid="ide-plan-card"
-      className="overflow-hidden rounded-xl border border-border bg-card text-xs shadow-xs"
+      className="overflow-hidden rounded-xl border border-border bg-card text-left text-xs shadow-xs"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-muted/30 px-3.5 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
@@ -185,6 +180,7 @@ export function IdePlanProposalCard({
           files={plan.affectedFiles}
           arabic={arabic}
           showAllFiles={showAllFiles}
+          scratchWorkspace={scratchWorkspace}
           onShowAll={() => setShowAllFiles(true)}
         />
 
@@ -194,7 +190,13 @@ export function IdePlanProposalCard({
 
         {plan.approvalRecord ? (
           <div className="flex items-center gap-1.5 border-t border-border/50 pt-2 text-2xs text-muted-foreground">
-            <Check className="size-3 text-emerald-500" />
+            {plan.approvalRecord.decision === 'approved' ? (
+              <Check className="size-3 text-foreground" />
+            ) : plan.approvalRecord.decision === 'rejected' ? (
+              <X className="size-3 text-destructive" />
+            ) : (
+              <Pencil className="size-3 text-muted-foreground" />
+            )}
             <span>
               {plan.approvalRecord.decision === 'approved'
                 ? copy.decisionApproved
@@ -229,6 +231,7 @@ export function IdePlanProposalCard({
                 disabled={busyDecision !== null || !revisionNote.trim()}
                 onClick={() => void handleReviseSubmit()}
               >
+                {busyDecision === 'revise' ? <Loader2 className="size-3 animate-spin" /> : null}
                 {copy.submitRevision}
               </Button>
               <Button
@@ -245,7 +248,7 @@ export function IdePlanProposalCard({
         ) : null}
       </div>
 
-      {canDecide || canReject || canViewChanges || (!compact && modelChoices.length > 0) ? (
+      {canDecide || canViewChanges ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-muted/20 px-3.5 py-2.5">
           <div className="flex flex-wrap items-center gap-1.5">
             {canDecide ? (
@@ -277,7 +280,7 @@ export function IdePlanProposalCard({
                 {copy.revisePlan}
               </Button>
             ) : null}
-            {canReject ? (
+            {canDecide ? (
               <Button
                 size="sm"
                 variant="ghost"

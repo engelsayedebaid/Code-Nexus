@@ -8,6 +8,16 @@ import {
   type PluginIconThemeRegistration
 } from '../../shared/plugins/artifacts/plugin-icon-theme-artifact'
 import {
+  PRIORITY_EXT_SET,
+  PRIORITY_FILE_SET,
+  PRIORITY_FOLDER_SET,
+  VSCODE_LANGUAGE_ID_EXTENSIONS,
+  VSCODE_LANGUAGE_ID_FILENAMES,
+  inlineSimpleSvgClassStyles,
+  isPlainIconRecord,
+  prioritizeIconEntries
+} from './vsix-icon-theme-data'
+import {
   computeRevisionHash,
   parseJsoncObject,
   readBoundedText,
@@ -19,12 +29,6 @@ import {
 export type AdaptedOpenVsxIconThemeEntry = {
   metadata: PluginIconThemeMetadata
   registration: PluginIconThemeRegistration
-}
-
-type VsCodeIconThemeContribution = {
-  id?: unknown
-  label?: unknown
-  path?: unknown
 }
 
 function setSafeIndex(target: Record<string, number>, key: string, value: number): void {
@@ -40,19 +44,20 @@ async function convertSingleIconTheme(
   extensionRootDir: string,
   pluginKey: string,
   version: string,
-  entry: VsCodeIconThemeContribution,
+  entry: unknown,
   index: number,
   nls: Record<string, string> | null,
+  usedSlugs: Set<string>,
   warnings: string[]
 ): Promise<AdaptedOpenVsxIconThemeEntry | null> {
-  if (!entry || typeof entry !== 'object' || typeof entry.path !== 'string') {
+  if (!isPlainIconRecord(entry) || typeof entry.path !== 'string') {
     return null
   }
   const themeFilePath = resolveContainedExtensionPath(extensionRootDir, entry.path)
   if (!themeFilePath) {
     return null
   }
-  const rawThemeContent = await readBoundedText(themeFilePath, 2 * 1024 * 1024)
+  const rawThemeContent = await readBoundedText(themeFilePath, 4 * 1024 * 1024)
   if (!rawThemeContent) {
     return null
   }
@@ -62,10 +67,9 @@ async function convertSingleIconTheme(
     return null
   }
 
-  const iconDefs =
-    parsedTheme.iconDefinitions && typeof parsedTheme.iconDefinitions === 'object'
-      ? (parsedTheme.iconDefinitions as Record<string, { iconPath?: unknown }>)
-      : null
+  const iconDefs = isPlainIconRecord(parsedTheme.iconDefinitions)
+    ? parsedTheme.iconDefinitions
+    : null
   if (!iconDefs) {
     return null
   }
@@ -73,7 +77,8 @@ async function convertSingleIconTheme(
   const label = resolveNlsString(entry.label, nls) || `Icons ${index + 1}`
   const slug = slugifyContribId(
     typeof entry.id === 'string' && entry.id.trim() ? entry.id : label,
-    `icons-${index}`
+    `icons-${index}`,
+    usedSlugs
   )
   const id: `plugin:${string}` = `plugin:${pluginKey}/${slug}`
   const themeBaseDir = path.dirname(themeFilePath)
@@ -93,7 +98,7 @@ async function convertSingleIconTheme(
       return undefined
     }
     const def = iconDefs[defId]
-    if (!def || typeof def.iconPath !== 'string') {
+    if (!isPlainIconRecord(def) || typeof def.iconPath !== 'string') {
       return undefined
     }
     const iconRelToRoot = path.relative(extensionRootDir, path.resolve(themeBaseDir, def.iconPath))
@@ -101,8 +106,12 @@ async function convertSingleIconTheme(
     if (!resolvedIcon || path.extname(resolvedIcon).toLowerCase() !== '.svg') {
       return undefined
     }
-    const svgContent = await readBoundedText(resolvedIcon, PLUGIN_ICON_SVG_MAX_BYTES)
-    if (!svgContent || !isPlausiblePluginIconSvg(svgContent)) {
+    const rawSvg = await readBoundedText(resolvedIcon, PLUGIN_ICON_SVG_MAX_BYTES)
+    if (!rawSvg) {
+      return undefined
+    }
+    const svgContent = inlineSimpleSvgClassStyles(rawSvg)
+    if (!isPlausiblePluginIconSvg(svgContent) || svgContent.length > PLUGIN_ICON_SVG_MAX_BYTES) {
       return undefined
     }
     const nextIndex = svgs.length
@@ -111,47 +120,121 @@ async function convertSingleIconTheme(
     return nextIndex
   }
 
-  const icons: Partial<Record<'file' | 'folder' | 'folder-open', number>> = {}
-  const fileIdx = await resolveIconIndex(parsedTheme.file)
-  if (fileIdx !== undefined) {
-    icons.file = fileIdx
-  }
-  const folderIdx = await resolveIconIndex(parsedTheme.folder)
-  if (folderIdx !== undefined) {
-    icons.folder = folderIdx
-  }
-  const folderOpenIdx = await resolveIconIndex(parsedTheme.folderExpanded)
-  if (folderOpenIdx !== undefined) {
-    icons['folder-open'] = folderOpenIdx
+  const applyPairs = async (
+    target: Record<string, number>,
+    pairs: readonly [string, unknown][],
+    overwrite = true
+  ): Promise<void> => {
+    for (const [key, defId] of pairs) {
+      if (!overwrite && Object.hasOwn(target, key)) {
+        continue
+      }
+      const idx = await resolveIconIndex(defId)
+      if (idx !== undefined) {
+        setSafeIndex(target, key, idx)
+      }
+    }
   }
 
-  const mapIconRecord = async (
-    source: unknown,
-    normalizeKey: (key: string) => string
-  ): Promise<Record<string, number>> => {
-    const target: Record<string, number> = {}
-    if (!source || typeof source !== 'object' || Array.isArray(source)) {
-      return target
+  const icons: Partial<Record<'file' | 'folder' | 'folder-open', number>> = {}
+  for (const [slot, rawRef] of [
+    ['file', parsedTheme.file],
+    ['folder', parsedTheme.folder],
+    ['folder-open', parsedTheme.folderExpanded]
+  ] as const) {
+    const idx = await resolveIconIndex(rawRef)
+    if (idx !== undefined) {
+      icons[slot] = idx
     }
-    for (const [rawKey, defId] of Object.entries(source as Record<string, unknown>)) {
+  }
+
+  const fileExtensions: Record<string, number> = {}
+  const fileNames: Record<string, number> = {}
+  const folderNames: Record<string, number> = {}
+  const folderNamesExpanded: Record<string, number> = {}
+
+  const extPairs = prioritizeIconEntries(
+    parsedTheme.fileExtensions,
+    (k) => k.trim().replace(/^\.+/, '').toLowerCase(),
+    PRIORITY_EXT_SET,
+    true
+  )
+  const filePairs = prioritizeIconEntries(
+    parsedTheme.fileNames,
+    (k) => k.trim().toLowerCase(),
+    PRIORITY_FILE_SET
+  )
+  const folderPairs = prioritizeIconEntries(
+    parsedTheme.folderNames,
+    (k) => k.trim().toLowerCase(),
+    PRIORITY_FOLDER_SET
+  )
+  const folderOpenPairs = prioritizeIconEntries(
+    parsedTheme.folderNamesExpanded,
+    (k) => k.trim().toLowerCase(),
+    PRIORITY_FOLDER_SET
+  )
+
+  // Tier 1: High-priority everyday extensions, filenames, folders, and VS Code languageIds first.
+  await applyPairs(
+    fileExtensions,
+    extPairs.filter(([k]) => PRIORITY_EXT_SET.has(k))
+  )
+  await applyPairs(
+    fileNames,
+    filePairs.filter(([k]) => PRIORITY_FILE_SET.has(k))
+  )
+  await applyPairs(
+    folderNames,
+    folderPairs.filter(([k]) => PRIORITY_FOLDER_SET.has(k))
+  )
+  await applyPairs(
+    folderNamesExpanded,
+    folderOpenPairs.filter(([k]) => PRIORITY_FOLDER_SET.has(k))
+  )
+
+  if (isPlainIconRecord(parsedTheme.languageIds)) {
+    for (const [rawLangId, defId] of Object.entries(parsedTheme.languageIds)) {
+      const langId = rawLangId.trim().toLowerCase()
+      const mappedExts = VSCODE_LANGUAGE_ID_EXTENSIONS[langId]
+      const mappedNames = VSCODE_LANGUAGE_ID_FILENAMES[langId]
+      if (!mappedExts && !mappedNames) {
+        continue
+      }
       const idx = await resolveIconIndex(defId)
       if (idx === undefined) {
         continue
       }
-      const key = normalizeKey(rawKey)
-      if (key) {
-        setSafeIndex(target, key, idx)
+      for (const ext of mappedExts ?? []) {
+        if (!Object.hasOwn(fileExtensions, ext)) {
+          setSafeIndex(fileExtensions, ext, idx)
+        }
+      }
+      for (const fname of mappedNames ?? []) {
+        if (!Object.hasOwn(fileNames, fname)) {
+          setSafeIndex(fileNames, fname, idx)
+        }
       }
     }
-    return target
   }
 
-  const fileNames = await mapIconRecord(parsedTheme.fileNames, (k) => k.trim())
-  const fileExtensions = await mapIconRecord(parsedTheme.fileExtensions, (k) =>
-    k.trim().replace(/^\.+/, '').toLowerCase()
+  // Tier 2: Remaining filenames, folders, and extensions fill the rest of the 512 SVG budget.
+  await applyPairs(
+    fileNames,
+    filePairs.filter(([k]) => !PRIORITY_FILE_SET.has(k))
   )
-  const folderNames = await mapIconRecord(parsedTheme.folderNames, (k) => k.trim())
-  const folderNamesExpanded = await mapIconRecord(parsedTheme.folderNamesExpanded, (k) => k.trim())
+  await applyPairs(
+    folderNames,
+    folderPairs.filter(([k]) => !PRIORITY_FOLDER_SET.has(k))
+  )
+  await applyPairs(
+    folderNamesExpanded,
+    folderOpenPairs.filter(([k]) => !PRIORITY_FOLDER_SET.has(k))
+  )
+  await applyPairs(
+    fileExtensions,
+    extPairs.filter(([k]) => !PRIORITY_EXT_SET.has(k))
+  )
 
   if (svgs.length === 0) {
     warnings.push(
@@ -164,9 +247,9 @@ async function convertSingleIconTheme(
     id,
     pluginKey,
     label,
-    revision: computeRevisionHash(`${version}:${id}:${svgs.length}`)
+    revision: computeRevisionHash(`v3:${version}:${id}:${svgs.length}`)
   }
-  const registrationCandidate: PluginIconThemeRegistration = {
+  const registration: PluginIconThemeRegistration = {
     ...metadata,
     svgs,
     icons,
@@ -175,9 +258,8 @@ async function convertSingleIconTheme(
     folderNames,
     folderNamesExpanded
   }
-
-  if (isPluginIconThemeRegistration(registrationCandidate)) {
-    return { metadata, registration: registrationCandidate }
+  if (isPluginIconThemeRegistration(registration)) {
+    return { metadata, registration }
   }
   warnings.push(`Icon theme "${label}" did not satisfy Orca SVG validation limits`)
   return null
@@ -195,14 +277,16 @@ export async function extractVsixIconThemes(
     return []
   }
   const results: AdaptedOpenVsxIconThemeEntry[] = []
+  const usedSlugs = new Set<string>()
   for (let index = 0; index < rawIconThemes.length; index += 1) {
     const converted = await convertSingleIconTheme(
       extensionRootDir,
       pluginKey,
       version,
-      rawIconThemes[index] as VsCodeIconThemeContribution,
+      rawIconThemes[index],
       index,
       nls,
+      usedSlugs,
       warnings
     )
     if (converted) {

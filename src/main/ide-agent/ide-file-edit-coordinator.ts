@@ -1,7 +1,9 @@
 import { normalizeWorkspaceRelativePath } from '../../shared/ide-agent/ide-plan-policy'
 import {
   applySearchReplacePatches,
-  buildProgressiveEditChunks
+  applyUnifiedDiffPatch,
+  buildProgressiveEditChunks,
+  preserveTextLineEndingsAndBom
 } from '../../shared/ide-agent/ide-patch-chunker'
 import type {
   IdeActivityEventType,
@@ -143,16 +145,25 @@ export async function applyCoordinatedFileOperation(
   }
 
   let targetContent = op.content ?? ''
-  if (op.action === 'patch' && op.patches) {
+  if (op.action === 'patch') {
     const baseText = cpEntry.afterContent ?? beforeContent ?? ''
-    const patched = applySearchReplacePatches(baseText, op.patches)
-    if (!patched.ok) {
-      throw new Error(`Patch failed for "${normalized}": ${patched.reason}`)
+    if (op.unifiedDiff) {
+      const diffPatched = applyUnifiedDiffPatch(baseText, op.unifiedDiff)
+      if (!diffPatched.ok) {
+        throw new Error(`Patch failed for "${normalized}": ${diffPatched.reason}`)
+      }
+      targetContent = diffPatched.content
+    } else if (op.patches) {
+      const patched = applySearchReplacePatches(baseText, op.patches)
+      if (!patched.ok) {
+        throw new Error(`Patch failed for "${normalized}": ${patched.reason}`)
+      }
+      targetContent = patched.content
     }
-    targetContent = patched.content
   }
 
   const currentDiskState = cpEntry.afterContent ?? beforeContent
+  targetContent = preserveTextLineEndingsAndBom(currentDiskState, targetContent)
   const chunks = buildProgressiveEditChunks({
     beforeContent: currentDiskState,
     afterContent: targetContent
@@ -268,8 +279,9 @@ export async function applyCoordinatedFileOperation(
     })
   }
 
+  const finalPersisted = writeRes.persistedContent ?? targetContent
   baselineShaByFile.set(normalized, writeRes.sha256)
-  cpEntry.afterContent = targetContent
+  cpEntry.afterContent = finalPersisted
 
   upsertFileChangeRecord(conv, cb.saveAndPublish, {
     runId: ctx.runId,
@@ -278,7 +290,7 @@ export async function applyCoordinatedFileOperation(
     changeType: cpEntry.existedBefore ? 'modified' : 'created',
     existedBefore: cpEntry.existedBefore,
     beforeContent,
-    afterContent: targetContent,
+    afterContent: finalPersisted,
     chunksApplied: chunks.length,
     totalChunks: chunks.length,
     acceptedState: 'pending'

@@ -1,10 +1,12 @@
-import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
+import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
+import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import {
   resolveChatScratchFolderPath,
   resolveChatScratchSelectorFolder
 } from '../runtime/files/chat-scratch-file-root'
+import { resolveCouncilTargetWorktree } from '../runtime/rpc/methods/council/council-target-worktree'
 import { IdeAgentEngine } from './ide-agent-engine'
 import { IdeAgentStore } from './ide-agent-persistence'
 import { RuntimeIdeAiClient } from './ide-ai-client'
@@ -12,11 +14,19 @@ import { LocalIdeWorkspaceGateway, type IdeWorkspaceGateway } from './ide-worksp
 
 const enginesByRuntime = new WeakMap<OrcaRuntimeService, IdeAgentEngine>()
 
+async function isExistingDirectory(candidatePath: string): Promise<boolean> {
+  try {
+    const info = await stat(candidatePath)
+    return info.isDirectory()
+  } catch {
+    return false
+  }
+}
+
 async function resolveRuntimeWorkspaceGateway(
   runtime: OrcaRuntimeService,
   selectorOrPath: string
 ): Promise<IdeWorkspaceGateway> {
-  // Workspace-less chats run inside this host's chat-scratch folder; accept both the `path:` selector and its absolute path.
   const scratchFolder =
     (await resolveChatScratchSelectorFolder(selectorOrPath)) ??
     (isAbsolute(selectorOrPath) ? await resolveChatScratchFolderPath(selectorOrPath) : null)
@@ -28,7 +38,7 @@ async function resolveRuntimeWorkspaceGateway(
     })
   }
   try {
-    const target = await runtime.resolveRuntimeFileTarget(selectorOrPath)
+    const target = await resolveCouncilTargetWorktree(runtime, selectorOrPath)
     return new LocalIdeWorkspaceGateway({
       worktreeId: target.worktree.id,
       workspacePath: target.worktree.path,
@@ -50,14 +60,18 @@ async function resolveRuntimeWorkspaceGateway(
         executionHostId: target.executionHostId
       })
     }
-    if (selectorOrPath.startsWith('id:') || error instanceof Error) {
-      throw error
+    if (
+      !selectorOrPath.startsWith('id:') &&
+      isAbsolute(selectorOrPath) &&
+      (await isExistingDirectory(selectorOrPath))
+    ) {
+      return new LocalIdeWorkspaceGateway({
+        worktreeId: selectorOrPath,
+        workspacePath: selectorOrPath,
+        executionHostId: LOCAL_EXECUTION_HOST_ID
+      })
     }
-    return new LocalIdeWorkspaceGateway({
-      worktreeId: selectorOrPath,
-      workspacePath: selectorOrPath,
-      executionHostId: LOCAL_EXECUTION_HOST_ID
-    })
+    throw error
   }
 }
 

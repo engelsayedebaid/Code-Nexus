@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   classifySensitiveCommand,
-  isModeWriteAllowed,
-  isPlanApprovedForExecution
+  isModeWriteAllowed
 } from '../../shared/ide-agent/ide-plan-policy'
 import type {
   IdeCommandCategory,
@@ -64,6 +63,9 @@ export async function requestExplicitRunPermission(
     command: params.command,
     status: 'warning'
   })
+  if (conversation.status !== 'awaiting_permission') {
+    run.statusBeforePermission = conversation.status
+  }
   host.setRunStatus(conversation, run.runId, 'awaiting_permission', params.title)
   host.emit({ type: 'permission_requested', conversationId: conversation.id, permission })
 
@@ -114,12 +116,26 @@ export function resolvePermissionDecision(
     command: perm.command,
     status: approved ? 'completed' : 'warning'
   })
-  host.saveAndPublish(conv)
   const run = activeRuns.get(conv.id)
   const waiter = run?.permissionWaiters.get(perm.id)
   if (waiter) {
     run?.permissionWaiters.delete(perm.id)
+    const stillWaiting = conv.pendingPermissions.some((p) => p.status === 'pending')
+    if (!stillWaiting && run) {
+      host.setRunStatus(conv, run.runId, run.statusBeforePermission ?? 'executing')
+    } else {
+      host.saveAndPublish(conv)
+    }
     waiter(approved)
+  } else if (conv.status === 'awaiting_permission') {
+    const stillWaiting = conv.pendingPermissions.some((p) => p.status === 'pending')
+    if (!stillWaiting) {
+      host.setRunStatus(conv, null, 'idle')
+    } else {
+      host.saveAndPublish(conv)
+    }
+  } else {
+    host.saveAndPublish(conv)
   }
   return conv
 }
@@ -145,13 +161,12 @@ export async function executeManualWorkspaceCommand(params: {
       `Command execution is disabled in ${conv.mode} mode. Switch to Agent mode first.`
     )
   }
-  const planCheck = isPlanApprovedForExecution(conv.plans.find((p) => p.id === conv.activePlanId))
-  if (!planCheck.ok) {
-    throw new Error(`Cannot run commands before plan approval: ${planCheck.reason}`)
-  }
   const runId = conv.activeRunId ?? randomUUID()
   const sensitive = classifySensitiveCommand(params.command)
-  if (sensitive && !params.permissionApproved) {
+  const alreadyApproved =
+    params.permissionApproved ||
+    conv.pendingPermissions.some((p) => p.status === 'approved' && p.command === params.command)
+  if (sensitive && !alreadyApproved) {
     const perm: IdePermissionRequest = {
       id: randomUUID(),
       conversationId: conv.id,
@@ -259,8 +274,18 @@ export function processRunControlAction(params: {
     return conv
   }
   const activePlan = conv.plans.find((p) => p.id === conv.activePlanId)
-  if (activePlan && activePlan.approvalRecord?.decision === 'approved') {
+  if (
+    activePlan &&
+    activePlan.status === 'failed' &&
+    activePlan.approvalRecord?.decision === 'approved'
+  ) {
     activePlan.status = 'awaiting_approval'
+    for (const step of activePlan.steps) {
+      if (step.status === 'failed' || step.status === 'in_progress') {
+        step.status = 'pending'
+      }
+    }
+    host.saveAndPublish(conv)
     return params.onApproveRetry(activePlan.id)
   }
   const lastUserMessage = [...conv.messages].toReversed().find((m) => m.role === 'user')

@@ -28,6 +28,9 @@ function leaveWorktreeIfEmpty(worktreeId: string): void {
   if (state.activeWorktreeId !== worktreeId) {
     return
   }
+  if (state.appMode === 'ide') {
+    return
+  }
   // Why: split-group closes bypass legacy Terminal.tsx; deselect the emptied worktree here or the window goes blank instead of landing.
   if (
     state.reconcileWorktreeTabModel(worktreeId).renderableTabCount === 0 &&

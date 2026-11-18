@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import {
@@ -9,6 +8,8 @@ import {
 } from '../../shared/ide-agent/ide-plan-policy'
 import {
   applySearchReplacePatches,
+  applyUnifiedDiffPatch,
+  preserveTextLineEndingsAndBom,
   type SearchReplacePatch
 } from '../../shared/ide-agent/ide-patch-chunker'
 import type { IdeExecutionMode } from '../../shared/ide-agent/ide-agent-types'
@@ -17,7 +18,13 @@ import { resolveSafeWorkspacePath } from './ide-workspace-path-guard'
 const MAX_CONTEXT_FILE_BYTES = 192 * 1024
 
 export type WorkspaceWriteResult =
-  | { ok: true; relativePath: string; sha256: string; created: boolean }
+  | {
+      ok: true
+      relativePath: string
+      sha256: string
+      created: boolean
+      persistedContent: string
+    }
   | {
       ok: false
       reason: 'dirty_conflict' | 'disk_conflict' | 'policy_blocked' | 'io_error'
@@ -34,6 +41,17 @@ export type WorkspaceReadResult =
 
 export function sha256Text(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
+async function statIfPresent(fullPath: string) {
+  try {
+    return await stat(fullPath)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
 }
 
 export async function readWorkspaceTextFileSafe(
@@ -61,10 +79,10 @@ export async function readWorkspaceTextFileSafe(
   }
   try {
     const fullPath = await resolveSafeWorkspacePath(workspacePath, normalized)
-    if (!existsSync(fullPath)) {
+    const info = await statIfPresent(fullPath)
+    if (!info) {
       return { ok: true, content: null, sha256: null }
     }
-    const info = await stat(fullPath)
     if (info.isDirectory()) {
       return { ok: false, reason: 'read_error', message: `"${normalized}" is a directory.` }
     }
@@ -136,7 +154,8 @@ export async function writeWorkspaceTextFileSafe(
   }
   try {
     const fullPath = await resolveSafeWorkspacePath(workspacePath, normalized)
-    const existed = existsSync(fullPath)
+    const info = await statIfPresent(fullPath)
+    const existed = info !== null
     const currentContent = existed ? await readFile(fullPath, 'utf8') : null
     const currentSha = currentContent === null ? null : sha256Text(currentContent)
     if (currentSha !== options.expectedBeforeSha) {
@@ -146,11 +165,33 @@ export async function writeWorkspaceTextFileSafe(
         message: `"${normalized}" changed on disk while agent edits were in progress.`
       }
     }
+    const persistedContent = preserveTextLineEndingsAndBom(currentContent, content)
     await mkdir(dirname(fullPath), { recursive: true })
-    const tempPath = `${fullPath}.nexus-tmp-${process.pid}-${Date.now()}`
-    await writeFile(tempPath, content, 'utf8')
-    await rename(tempPath, fullPath)
-    return { ok: true, relativePath: normalized, sha256: sha256Text(content), created: !existed }
+    const tempPath = `${fullPath}.carver-tmp-${process.pid}-${Date.now()}`
+    await writeFile(tempPath, persistedContent, 'utf8')
+    try {
+      await rename(tempPath, fullPath)
+    } catch (renameErr) {
+      const code =
+        renameErr && typeof renameErr === 'object' && 'code' in renameErr
+          ? renameErr.code
+          : undefined
+      if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) {
+        await new Promise((r) => setTimeout(r, 40))
+        await writeFile(fullPath, persistedContent, 'utf8')
+        await rm(tempPath, { force: true }).catch(() => {})
+      } else {
+        await rm(tempPath, { force: true }).catch(() => {})
+        throw renameErr
+      }
+    }
+    return {
+      ok: true,
+      relativePath: normalized,
+      sha256: sha256Text(persistedContent),
+      created: !existed,
+      persistedContent
+    }
   } catch (error) {
     return {
       ok: false,
@@ -169,6 +210,7 @@ export async function applyWorkspaceFilePatchesSafe(
     expectedBeforeSha: string | null
     dirtyRelativePaths?: ReadonlySet<string>
     allowSecretWrite?: boolean
+    unifiedDiff?: string
   }
 ): Promise<
   | { ok: true; relativePath: string; sha256: string; beforeContent: string; afterContent: string }
@@ -187,7 +229,9 @@ export async function applyWorkspaceFilePatchesSafe(
       message: `Cannot patch non-existent file "${rawRelativePath}".`
     }
   }
-  const patched = applySearchReplacePatches(readRes.content, patches)
+  const patched = options.unifiedDiff
+    ? applyUnifiedDiffPatch(readRes.content, options.unifiedDiff)
+    : applySearchReplacePatches(readRes.content, patches)
   if (!patched.ok) {
     return { ok: false, reason: 'invalid_patch', message: patched.reason }
   }
@@ -208,7 +252,7 @@ export async function applyWorkspaceFilePatchesSafe(
     relativePath: writeRes.relativePath,
     sha256: writeRes.sha256,
     beforeContent: readRes.content,
-    afterContent: patched.content
+    afterContent: writeRes.persistedContent
   }
 }
 
@@ -223,7 +267,8 @@ export async function deleteWorkspaceFileSafe(
   try {
     const normalized = normalizeWorkspaceRelativePath(rawRelativePath)
     const fullPath = await resolveSafeWorkspacePath(workspacePath, normalized)
-    if (!existsSync(fullPath)) {
+    const info = await statIfPresent(fullPath)
+    if (!info) {
       return { ok: true }
     }
     await rm(fullPath, { force: false })

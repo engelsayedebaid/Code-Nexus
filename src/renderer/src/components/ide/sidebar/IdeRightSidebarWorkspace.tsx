@@ -4,33 +4,16 @@ import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import { resolveIdeWorkspaceSnapshot } from '@/lib/ide-agent/ide-agent-live-sync'
 import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
 import { cn } from '@/lib/class-names'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME } from '@/components/right-sidebar/right-sidebar-titlebar-drag-regions'
-import type {
-  IdeRightSidebarView,
-  IdeTodoItem
-} from '../../../../../shared/ide-agent/ide-agent-types'
-import { AppIcon, type AppIconName } from '@/components/icons/app-icon'
+import type { IdeTodoItem } from '../../../../../shared/ide-agent/ide-agent-types'
+import { IdeAlertCard } from './IdeAlertCard'
 import { IdeChatHeader } from './IdeChatHeader'
+import { IdeRightSidebarTopBar } from './IdeRightSidebarTopBar'
 import { IdeAiChatView } from './IdeAiChatView'
 import { IdeAgentActivityView } from './IdeAgentActivityView'
 import { IdeTaskPlanView } from './IdeTaskPlanView'
 import { IdeSimpleTodoPanel } from './IdeSimpleTodoPanel'
 import { IdeCodeChangesView } from './IdeCodeChangesView'
 import { IdeExecutionHistoryView } from './IdeExecutionHistoryView'
-
-const IDE_SIDEBAR_VIEWS: {
-  id: IdeRightSidebarView
-  label: string
-  icon: AppIconName
-}[] = [
-  { id: 'ai-chat', label: 'AI Chat', icon: 'messages' },
-  { id: 'ai-activity', label: 'Activity', icon: 'activity' },
-  { id: 'task-plan', label: 'Task Plan', icon: 'taskPlan' },
-  { id: 'simple-todo', label: 'Simple Todo', icon: 'todo' },
-  { id: 'code-changes', label: 'Changes', icon: 'changes' },
-  { id: 'execution-history', label: 'History', icon: 'executionHistory' }
-]
 
 type ScratchWorkspaceTarget = {
   workspaceKey: string
@@ -51,8 +34,16 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
   const conversations = useIdeAgentStore((s) => s.conversations)
   const activeConversation = useIdeAgentStore((s) => s.activeConversation)
   const todosByWorkspace = useIdeAgentStore((s) => s.todosByWorkspace)
+  const lastError = useIdeAgentStore((s) => s.lastError)
+  const clearError = useIdeAgentStore((s) => s.clearError)
+  const refreshProviders = useIdeAgentStore((s) => s.refreshProviders)
+  const updateSettings = useIdeAgentStore((s) => s.updateSettings)
   const ensureWorkspaceInitialized = useIdeAgentStore((s) => s.ensureWorkspaceInitialized)
   const saveTodos = useIdeAgentStore((s) => s.saveTodos)
+
+  const [todoSyncRevision, setTodoSyncRevision] = useState(0)
+  const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
 
   const activeWorkspace = useMemo(
     () =>
@@ -65,7 +56,6 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
     [activeWorktreeId, worktreesByRepo, folderWorkspaces, activeWorkspaceExecutionHostId]
   )
 
-  // No open folder/worktree still gets a chat: the host's private scratch folder acts as the workspace.
   const [scratchWorkspace, setScratchWorkspace] = useState<ScratchWorkspaceTarget | null>(null)
   useEffect(() => {
     if (activeWorkspace) {
@@ -118,10 +108,12 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
   const pendingPermissionsCount = (activeConversation?.pendingPermissions ?? []).filter(
     (p) => p.status === 'pending'
   ).length
+  const awaitingPlansCount = (activeConversation?.plans ?? []).filter(
+    (p) => p.status === 'awaiting_approval'
+  ).length
   const pendingChangesCount = (activeConversation?.fileChanges ?? []).filter(
     (c) => c.acceptedState === 'pending'
   ).length
-  const activeSidebarView = IDE_SIDEBAR_VIEWS.find((view) => view.id === ideSidebarView)
 
   const handleSyncTodoFromPlan = () => {
     if (!effectiveWorkspace || !activeConversation?.activePlanId) {
@@ -139,7 +131,7 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
       .map((step) => ({
         id: `todo-${step.id}-${now}`,
         workspaceKey: effectiveWorkspace.workspaceKey,
-        text: `${step.index}. ${step.title}`,
+        text: `${step.index + 1}. ${step.title}`,
         done: step.status === 'completed',
         linkedPlanId: plan.id,
         linkedStepId: step.id,
@@ -149,84 +141,102 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
     if (appended.length > 0) {
       void saveTodos(effectiveWorkspace.workspaceKey, [...existing, ...appended])
     }
+    setTodoSyncRevision((rev) => rev + 1)
     setIdeSidebarView('simple-todo')
   }
 
-  return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="flex h-11 min-h-11 items-center gap-2 border-b border-border/70 px-2 right-sidebar-header-inset right-sidebar-header-drag">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-xs font-medium text-foreground">
-          <AppIcon name={activeSidebarView?.icon ?? 'messages'} className="size-3.5 shrink-0" />
-          <span className="truncate">{activeSidebarView?.label ?? 'AI Chat'}</span>
-        </div>
-        <div
-          className={cn(
-            'flex shrink-0 items-center gap-0.5',
-            RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME
-          )}
-          role="tablist"
-          aria-label="IDE Right Sidebar Views"
-        >
-          {IDE_SIDEBAR_VIEWS.map((view) => {
-            const active = ideSidebarView === view.id
-            const badgeCount =
-              view.id === 'task-plan'
-                ? pendingPermissionsCount
-                : view.id === 'code-changes'
-                  ? pendingChangesCount
-                  : 0
-            return (
-              <Tooltip key={view.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    aria-label={view.label}
-                    data-testid={`ide-sidebar-tab-${view.id}`}
-                    onClick={() => setIdeSidebarView(view.id)}
-                    className={cn(
-                      'relative inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors',
-                      active
-                        ? 'text-foreground'
-                        : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-                    )}
-                  >
-                    <AppIcon name={view.icon} />
-                    {active ? (
-                      <span className="absolute inset-x-1 bottom-[-9px] h-0.5 rounded-t bg-foreground" />
-                    ) : null}
-                    {badgeCount > 0 ? (
-                      <span className="absolute -right-1 -top-1 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[8.5px] font-semibold leading-none text-white">
-                        {badgeCount}
-                      </span>
-                    ) : null}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{view.label}</TooltipContent>
-              </Tooltip>
-            )
-          })}
-        </div>
+  const handleCommitRename = (): void => {
+    const targetId = editingTabId
+    setEditingTabId(null)
+    if (!targetId) {
+      return
+    }
+    const trimmed = titleDraft.trim()
+    const existingTitle =
+      activeConversation?.id === targetId
+        ? activeConversation.title
+        : conversations.find((c) => c.id === targetId)?.title
+    if (trimmed && trimmed !== existingTitle) {
+      void updateSettings({ conversationId: targetId, title: trimmed })
+    }
+  }
 
-        <TooltipProvider>
-          <div
-            className={cn('flex shrink-0 items-center', RIGHT_SIDEBAR_HEADER_NO_DRAG_CLASS_NAME)}
-          >
-            {closeButton}
-          </div>
-        </TooltipProvider>
-      </div>
+  const latestMessageError = activeConversation?.messages.at(-1)?.error
+  const showBannerAlert =
+    Boolean(lastError) &&
+    !(ideSidebarView === 'ai-chat' && latestMessageError && latestMessageError === lastError)
+
+  return (
+    <div
+      dir="ltr"
+      className="@container/ide-right flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-left"
+    >
+      <IdeRightSidebarTopBar
+        activeView={ideSidebarView}
+        onSelectView={setIdeSidebarView}
+        pendingPlansBadgeCount={pendingPermissionsCount + awaitingPlansCount}
+        pendingChangesCount={pendingChangesCount}
+        activeConversation={activeConversation}
+        conversations={conversations}
+        providersLoading={providersLoading}
+        workspaceKey={effectiveWorkspace?.workspaceKey ?? null}
+        worktreeSelector={effectiveWorkspace?.worktreeSelector ?? null}
+        onStartRenameActive={() => {
+          if (activeConversation) {
+            setTitleDraft(activeConversation.title)
+            setEditingTabId(activeConversation.id)
+          }
+        }}
+        onSyncTodoFromPlan={handleSyncTodoFromPlan}
+        closeButton={closeButton}
+      />
 
       <IdeChatHeader
         conversation={activeConversation}
         conversations={conversations}
-        providersLoading={providersLoading}
         workspaceKey={effectiveWorkspace?.workspaceKey ?? null}
         workspacePath={effectiveWorkspace?.workspacePath ?? null}
-        worktreeSelector={effectiveWorkspace?.worktreeSelector ?? null}
-        onSyncTodoFromPlan={handleSyncTodoFromPlan}
+        activeView={ideSidebarView}
+        editingTabId={editingTabId}
+        titleDraft={titleDraft}
+        onTitleDraftChange={setTitleDraft}
+        onStartRename={(convId, currentTitle) => {
+          setTitleDraft(currentTitle)
+          setEditingTabId(convId)
+        }}
+        onCommitRename={handleCommitRename}
+        onCancelRename={() => setEditingTabId(null)}
+        onSwitchToChatView={() => {
+          if (ideSidebarView !== 'ai-chat') {
+            setIdeSidebarView('ai-chat')
+          }
+        }}
       />
+
+      {showBannerAlert && lastError ? (
+        <div className="border-b border-border/60 px-2.5 py-2">
+          <IdeAlertCard
+            error={lastError}
+            conversation={activeConversation}
+            providers={providers}
+            providersLoading={providersLoading}
+            onDismiss={clearError}
+            onRefreshModels={() =>
+              void refreshProviders(effectiveWorkspace?.worktreeSelector ?? undefined)
+            }
+            onSelectFallbackModel={({ agentId, modelId }) => {
+              clearError()
+              if (activeConversation) {
+                void updateSettings({
+                  conversationId: activeConversation.id,
+                  agentId,
+                  modelId
+                })
+              }
+            }}
+          />
+        </div>
+      ) : null}
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
@@ -238,6 +248,7 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
           <IdeAiChatView
             conversation={activeConversation}
             providers={providers}
+            providersLoading={providersLoading}
             workspaceKey={effectiveWorkspace?.workspaceKey ?? null}
             workspacePath={effectiveWorkspace?.workspacePath ?? null}
             worktreeSelector={effectiveWorkspace?.worktreeSelector ?? null}
@@ -273,6 +284,7 @@ export function IdeRightSidebarWorkspace({ closeButton }: { closeButton: React.R
           <IdeSimpleTodoPanel
             workspaceKey={effectiveWorkspace?.workspaceKey ?? null}
             conversation={activeConversation}
+            syncRevision={todoSyncRevision}
           />
         </div>
 

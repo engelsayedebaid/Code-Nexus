@@ -5,14 +5,9 @@ import type {
   IdeAgentStreamEvent,
   IdeChatAttachment
 } from '../../../../shared/ide-agent/ide-agent-types'
-import {
-  applyIdeAgentStreamEvent,
-  type IdeAgentStoreData
-} from './ide-agent-event-reducer'
-import {
-  createIdeAgentStoreActions,
-  initializeWorkspaceSession
-} from './ide-agent-store-actions'
+import { applyIdeAgentStreamEvent, type IdeAgentStoreData } from './ide-agent-event-reducer'
+import { useIdePromptQueueStore } from './ide-prompt-queue'
+import { createIdeAgentStoreActions, initializeWorkspaceSession } from './ide-agent-store-actions'
 
 type IdeAgentStoreState = IdeAgentStoreData &
   ReturnType<typeof createIdeAgentStoreActions> & {
@@ -29,6 +24,84 @@ type IdeAgentStoreState = IdeAgentStoreData &
   }
 
 let activeEventUnsubscribe: (() => void) | null = null
+let subscriptionGeneration = 0
+let workspaceInitGeneration = 0
+
+function isIdeStreamEvent(value: unknown): value is IdeAgentStreamEvent {
+  return (
+    typeof value === 'object' && value !== null && 'type' in value && typeof value.type === 'string'
+  )
+}
+
+const bufferedEvents: IdeAgentStreamEvent[] = []
+let flushScheduled = false
+const drainingConversations = new Set<string>()
+
+function maybeDrainQueuedPrompt(): void {
+  const store = useIdeAgentStore.getState()
+  const active = store.activeConversation
+  if (!active || active.activeRunId !== null) {
+    return
+  }
+  if (active.status !== 'idle' && active.status !== 'completed') {
+    return
+  }
+  if (drainingConversations.has(active.id)) {
+    return
+  }
+  const queuedList = useIdePromptQueueStore.getState().byConversation[active.id]
+  if (!queuedList || queuedList.length === 0) {
+    return
+  }
+  const nextItem = useIdePromptQueueStore.getState().shiftNext(active.id)
+  if (!nextItem) {
+    return
+  }
+  drainingConversations.add(active.id)
+  void store
+    .sendPrompt({
+      conversationId: nextItem.conversationId,
+      worktreeSelector: nextItem.worktreeSelector,
+      text: nextItem.text,
+      mode: nextItem.mode,
+      agentId: nextItem.agentId,
+      modelId: nextItem.modelId,
+      multiAgentEnabled: nextItem.multiAgentEnabled,
+      followAgent: nextItem.followAgent,
+      fromQueue: { attachments: nextItem.attachments }
+    })
+    .finally(() => {
+      drainingConversations.delete(active.id)
+    })
+}
+
+function scheduleBufferedEventFlush(
+  applyBatch: (events: readonly IdeAgentStreamEvent[]) => void
+): void {
+  if (flushScheduled) {
+    return
+  }
+  flushScheduled = true
+  const runFlush = (): void => {
+    flushScheduled = false
+    if (bufferedEvents.length === 0) {
+      return
+    }
+    const batch = bufferedEvents.splice(0)
+    applyBatch(batch)
+    maybeDrainQueuedPrompt()
+  }
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.requestAnimationFrame === 'function' &&
+    typeof document !== 'undefined' &&
+    !document.hidden
+  ) {
+    window.requestAnimationFrame(runFlush)
+  } else {
+    setTimeout(runFlush, 16)
+  }
+}
 
 export const useIdeAgentStore = create<IdeAgentStoreState>((set, get) => ({
   workspaceKey: null,
@@ -51,12 +124,29 @@ export const useIdeAgentStore = create<IdeAgentStoreState>((set, get) => ({
     })),
 
   addAttachment: (conversationId, attachment) =>
-    set((s) => ({
-      attachmentsByConversation: {
-        ...s.attachmentsByConversation,
-        [conversationId]: [...(s.attachmentsByConversation[conversationId] ?? []), attachment]
+    set((s) => {
+      const existing = s.attachmentsByConversation[conversationId] ?? []
+      if (existing.length >= 24) {
+        return { lastError: 'Maximum of 24 attachments reached for this message.' }
       }
-    })),
+      const duplicate = existing.some(
+        (item) =>
+          item.kind === attachment.kind &&
+          item.relativePath &&
+          item.relativePath === attachment.relativePath &&
+          item.lineRange?.start === attachment.lineRange?.start &&
+          item.lineRange?.end === attachment.lineRange?.end
+      )
+      if (duplicate) {
+        return s
+      }
+      return {
+        attachmentsByConversation: {
+          ...s.attachmentsByConversation,
+          [conversationId]: [...existing, attachment]
+        }
+      }
+    }),
 
   removeAttachment: (conversationId, attachmentId) =>
     set((s) => ({
@@ -75,39 +165,97 @@ export const useIdeAgentStore = create<IdeAgentStoreState>((set, get) => ({
 
   ensureWorkspaceInitialized: async (workspaceKey, workspacePath, worktreeSelector) => {
     const state = get()
-    if (!state.subscriptionActive && typeof window !== 'undefined' && Boolean(window.api?.runtime?.subscribe)) {
+    if (
+      !state.subscriptionActive &&
+      typeof window !== 'undefined' &&
+      Boolean(window.api?.runtime?.subscribe)
+    ) {
+      subscriptionGeneration += 1
+      const myGen = subscriptionGeneration
       set({ subscriptionActive: true })
-      subscribeRuntimeRpc({ kind: 'local' }, 'ideAgent.subscribeEvents', {}, {
-        onEvent: (raw) => {
-          if (!raw || typeof raw !== 'object') {
+      subscribeRuntimeRpc(
+        { kind: 'local' },
+        'ideAgent.subscribeEvents',
+        {},
+        {
+          onEvent: (raw) => {
+            if (!isIdeStreamEvent(raw)) {
+              return
+            }
+            syncIdeAgentEventToWorkspace(raw, get().activeConversation)
+            bufferedEvents.push(raw)
+            scheduleBufferedEventFlush((batch) => {
+              set((curr) => {
+                let next: IdeAgentStoreData = curr
+                for (const ev of batch) {
+                  const patch = applyIdeAgentStreamEvent(next, ev)
+                  next = patch === next ? next : { ...next, ...patch }
+                }
+                return next === curr ? curr : next
+              })
+            })
+          },
+          onError: () => {
+            if (myGen === subscriptionGeneration) {
+              set({ subscriptionActive: false })
+            }
+          },
+          onClose: () => {
+            if (myGen === subscriptionGeneration) {
+              set({ subscriptionActive: false })
+            }
+          }
+        }
+      )
+        .then((sub) => {
+          if (myGen !== subscriptionGeneration) {
+            sub.unsubscribe()
             return
           }
-          const event = raw as IdeAgentStreamEvent
-          syncIdeAgentEventToWorkspace(event)
-          set((curr) => applyIdeAgentStreamEvent(curr, event))
-        },
-        onError: () => set({ subscriptionActive: false }),
-        onClose: () => set({ subscriptionActive: false })
-      })
-        .then((sub) => {
           activeEventUnsubscribe?.()
           activeEventUnsubscribe = sub.unsubscribe
         })
         .catch(() => {
-          set({ subscriptionActive: false })
+          if (myGen === subscriptionGeneration) {
+            set({ subscriptionActive: false })
+          }
         })
     }
-    if (state.providers.length === 0 && !state.providersLoading) {
-      void state.refreshProviders(worktreeSelector)
+
+    const workspaceChanged = state.workspaceKey !== workspaceKey
+    if ((state.providers.length === 0 || workspaceChanged) && !state.providersLoading) {
+      void get().refreshProviders(worktreeSelector)
     }
-    if (state.workspaceKey === workspaceKey && state.activeConversation) {
+    if (
+      !workspaceChanged &&
+      state.activeConversation &&
+      state.activeConversation.workspaceKey === workspaceKey
+    ) {
       return
     }
-    set({ workspaceKey })
+    workspaceInitGeneration += 1
+    const myInitGen = workspaceInitGeneration
+    if (workspaceChanged) {
+      set({
+        workspaceKey,
+        conversations: [],
+        activeConversation: null,
+        lastError: null
+      })
+    } else {
+      set({ workspaceKey })
+    }
     try {
-      await initializeWorkspaceSession(workspaceKey, workspacePath, set)
+      await initializeWorkspaceSession(
+        workspaceKey,
+        workspacePath,
+        () => myInitGen !== workspaceInitGeneration || get().workspaceKey !== workspaceKey,
+        set
+      )
     } catch (error) {
-      set({ lastError: error instanceof Error ? error.message : String(error) })
+      if (myInitGen === workspaceInitGeneration) {
+        set({ lastError: error instanceof Error ? error.message : String(error) })
+      }
     }
   },
 

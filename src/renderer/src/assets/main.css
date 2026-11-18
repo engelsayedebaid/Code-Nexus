@@ -563,21 +563,23 @@ body[data-modal-overlay-open] [data-toasts-raised] [data-sonner-toaster] {
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 8px;
+  padding: 10px 32px 10px 12px;
+  border-radius: calc(var(--radius) + 2px);
+  font-size: 0.8125rem;
   box-shadow: var(--shadow-floating);
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-icon] {
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-content] {
   min-width: 0;
   flex: 1 1 calc(100% - 30px);
-  gap: 6px;
+  gap: 4px;
 }
 
 /* Clip folded toast overflow to prevent hover/re-expansion loops; hidden would create a focus-scrollable container. */
@@ -588,7 +590,7 @@ body[data-modal-overlay-open] [data-toasts-raised] [data-sonner-toaster] {
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button] {
   /* Move Sonner actions below copy to avoid squeezing long notices; align footer text after the icon. */
   margin-top: 2px;
-  margin-left: 26px;
+  margin-left: 24px;
   margin-right: 0;
 }
 
@@ -596,15 +598,16 @@ body[data-modal-overlay-open] [data-toasts-raised] [data-sonner-toaster] {
   margin-left: 0;
 }
 
-/* Why: Sonner's 24px buttons with untokened fills don't match Orca; mirror Button size="sm" default/secondary. */
+/* Why: Sonner's 24px buttons with untokened fills don't match Orca; mirror compact secondary/outline pill. */
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button] {
-  height: 2rem;
-  padding: 0 0.75rem;
-  border-radius: calc(var(--radius) - 2px);
-  font-size: 0.875rem;
+  height: 1.625rem;
+  padding: 0 0.625rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
   font-weight: 500;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  border: 1px solid var(--border);
   transition:
     opacity 0.4s,
     box-shadow 0.2s,
@@ -612,7 +615,8 @@ body[data-modal-overlay-open] [data-toasts-raised] [data-sonner-toaster] {
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-button]:hover {
-  background: color-mix(in oklab, var(--primary) 90%, transparent);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 [data-sonner-toaster][data-sonner-theme]
@@ -653,26 +657,33 @@ body[data-modal-overlay-open]
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-close-button] {
-  /* Override Sonner’s dark defaults so the close icon contrasts in both themes. */
-  color: var(--popover-foreground);
-  background: var(--popover);
-  border-color: rgb(0 0 0 / 0.14);
+  /* Place close button cleanly inside top-right corner instead of jutting off top-left edge. */
+  left: auto !important;
+  right: 6px !important;
+  top: 6px !important;
+  transform: none !important;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: none;
+  color: var(--muted-foreground);
+  background: transparent;
 }
 
 [data-sonner-toaster][data-sonner-theme='dark']
   [data-sonner-toast][data-styled='true']
   [data-close-button] {
-  color: var(--popover-foreground);
-  background: var(--popover);
-  border-color: rgb(255 255 255 / 0.14);
+  color: var(--muted-foreground);
+  background: transparent;
+  border: none;
 }
 
 .dark [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-close-button] {
-  border-color: rgb(255 255 255 / 0.14);
+  border: none;
 }
 
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-close-button]:hover {
-  color: var(--accent-foreground);
+  color: var(--foreground);
   background: var(--accent);
 }
 

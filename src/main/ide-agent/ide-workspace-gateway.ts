@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { normalizeWorkspaceRelativePath } from '../../shared/ide-agent/ide-plan-policy'
 import type { SearchReplacePatch } from '../../shared/ide-agent/ide-patch-chunker'
 import type { IdeExecutionMode } from '../../shared/ide-agent/ide-agent-types'
@@ -10,6 +8,8 @@ import {
   probeWorkspaceDiagnostics,
   type WorkspaceDiagnosticResult
 } from './ide-workspace-diagnostics'
+import { invalidateWorkspaceFileListCache } from './harness/ripgrep-workspace-search'
+import type { IdeWorkspaceGateway } from './ide-workspace-gateway-types'
 import { inspectWorkspaceTree, type WorkspaceInspectionSnapshot } from './ide-workspace-inspector'
 import { resolveSafeWorkspacePath } from './ide-workspace-path-guard'
 import {
@@ -36,97 +36,12 @@ import {
 } from './ide-workspace-write-fs'
 
 export { sha256Text, type WorkspaceReadResult, type WorkspaceWriteResult }
+export type { IdeWorkspaceGateway } from './ide-workspace-gateway-types'
 export type { IdeWorkspaceTarget, WorkspaceCommandRunResult } from './ide-workspace-shell'
 export type { WorkspaceInspectionSnapshot } from './ide-workspace-inspector'
 export type { CodeSearchMatch } from './ide-workspace-tools-fs'
 export type { IndexedSymbolEntry } from './ide-codebase-intel'
 export type { WorkspaceDiagnosticResult } from './ide-workspace-diagnostics'
-
-export type IdeWorkspaceGateway = {
-  readonly target: IdeWorkspaceTarget
-  inspectWorkspace(hintTerms?: readonly string[]): Promise<WorkspaceInspectionSnapshot>
-  readTextFile(
-    relativePath: string,
-    options?: { allowSecretRead?: boolean }
-  ): Promise<WorkspaceReadResult>
-  readTextFileRange?: (
-    relativePath: string,
-    startLine: number,
-    endLine: number,
-    options?: { allowSecretRead?: boolean }
-  ) => Promise<
-    | { ok: true; content: string | null; sha256: string | null; totalLines: number }
-    | { ok: false; reason: string; message: string }
-  >
-  writeTextChunk(
-    relativePath: string,
-    content: string,
-    options: {
-      mode: IdeExecutionMode
-      expectedBeforeSha: string | null
-      dirtyRelativePaths?: ReadonlySet<string>
-      allowSecretWrite?: boolean
-    }
-  ): Promise<WorkspaceWriteResult>
-  applyFilePatches?: (
-    relativePath: string,
-    patches: readonly SearchReplacePatch[],
-    options: {
-      mode: IdeExecutionMode
-      expectedBeforeSha: string | null
-      dirtyRelativePaths?: ReadonlySet<string>
-      allowSecretWrite?: boolean
-    }
-  ) => Promise<
-    | {
-        ok: true
-        relativePath: string
-        sha256: string
-        beforeContent: string
-        afterContent: string
-      }
-    | { ok: false; reason: string; message: string }
-  >
-  createDirectory?: (
-    relativePath: string,
-    options: { mode: IdeExecutionMode }
-  ) => Promise<
-    { ok: true; relativePath: string; created: boolean } | { ok: false; message: string }
-  >
-  renamePath?: (
-    fromRelativePath: string,
-    toRelativePath: string,
-    options: { mode: IdeExecutionMode; allowSecretMove?: boolean }
-  ) => Promise<
-    | { ok: true; fromRelativePath: string; toRelativePath: string; isDirectory: boolean }
-    | { ok: false; message: string }
-  >
-  deleteWorkspaceFile(
-    relativePath: string,
-    options: { mode: IdeExecutionMode }
-  ): Promise<{ ok: true } | { ok: false; message: string }>
-  deleteDirectory?: (
-    relativePath: string,
-    options: { mode: IdeExecutionMode; recursive?: boolean }
-  ) => Promise<{ ok: true; relativePath: string } | { ok: false; message: string }>
-  searchFiles?: (query: string, maxResults?: number) => Promise<string[]>
-  searchCode?: (
-    query: string,
-    options?: { pathPrefix?: string; caseSensitive?: boolean; maxResults?: number }
-  ) => Promise<CodeSearchMatch[]>
-  findSymbols?: (query: string, maxResults?: number) => Promise<IndexedSymbolEntry[]>
-  getImports?: (relativePath: string) => Promise<{ imports: string[]; importedBy: string[] }>
-  getDiagnostics?: (signal?: AbortSignal) => Promise<WorkspaceDiagnosticResult>
-  getGitDiffSummary(): Promise<string | null>
-  runShellCommand(
-    command: string,
-    options: {
-      timeoutMs?: number
-      signal?: AbortSignal
-      onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void
-    }
-  ): Promise<WorkspaceCommandRunResult>
-}
 
 export class LocalIdeWorkspaceGateway implements IdeWorkspaceGateway {
   readonly target: IdeWorkspaceTarget
@@ -143,9 +58,15 @@ export class LocalIdeWorkspaceGateway implements IdeWorkspaceGateway {
     )
   }
 
-  inspectWorkspace(hintTerms: readonly string[] = []): Promise<WorkspaceInspectionSnapshot> {
-    return inspectWorkspaceTree(this.target.workspacePath, hintTerms, (relPath) =>
-      this.readTextFile(relPath)
+  inspectWorkspace(
+    hintTerms: readonly string[] = [],
+    signal?: AbortSignal
+  ): Promise<WorkspaceInspectionSnapshot> {
+    return inspectWorkspaceTree(
+      this.target.workspacePath,
+      hintTerms,
+      (relPath) => this.readTextFile(relPath),
+      signal
     )
   }
 
@@ -182,7 +103,7 @@ export class LocalIdeWorkspaceGateway implements IdeWorkspaceGateway {
     return { ok: true, content: numbered, sha256: full.sha256, totalLines: lines.length }
   }
 
-  writeTextChunk(
+  async writeTextChunk(
     rawRelativePath: string,
     content: string,
     options: {
@@ -192,7 +113,16 @@ export class LocalIdeWorkspaceGateway implements IdeWorkspaceGateway {
       allowSecretWrite?: boolean
     }
   ): Promise<WorkspaceWriteResult> {
-    return writeWorkspaceTextFileSafe(this.target.workspacePath, rawRelativePath, content, options)
+    const res = await writeWorkspaceTextFileSafe(
+      this.target.workspacePath,
+      rawRelativePath,
+      content,
+      options
+    )
+    if (res.ok && res.created) {
+      invalidateWorkspaceFileListCache(this.target.workspacePath)
+    }
+    return res
   }
 
   applyFilePatches(
@@ -213,54 +143,70 @@ export class LocalIdeWorkspaceGateway implements IdeWorkspaceGateway {
     )
   }
 
-  createDirectory(rawRelativePath: string, options: { mode: IdeExecutionMode }) {
-    return createWorkspaceDirectorySafe({
+  async createDirectory(rawRelativePath: string, options: { mode: IdeExecutionMode }) {
+    const res = await createWorkspaceDirectorySafe({
       rawRelativePath,
       mode: options.mode,
       resolveSafePath: (raw) => resolveSafeWorkspacePath(this.target.workspacePath, raw)
     })
+    invalidateWorkspaceFileListCache(this.target.workspacePath)
+    return res
   }
 
-  renamePath(
+  async renamePath(
     fromRawPath: string,
     toRawPath: string,
     options: { mode: IdeExecutionMode; allowSecretMove?: boolean }
   ) {
-    return renameWorkspacePathSafe({
+    const res = await renameWorkspacePathSafe({
       fromRawPath,
       toRawPath,
       mode: options.mode,
       allowSecretMove: options.allowSecretMove,
       resolveSafePath: (raw) => resolveSafeWorkspacePath(this.target.workspacePath, raw)
     })
+    invalidateWorkspaceFileListCache(this.target.workspacePath)
+    return res
   }
 
-  deleteWorkspaceFile(rawRelativePath: string, options: { mode: IdeExecutionMode }) {
-    return deleteWorkspaceFileSafe(this.target.workspacePath, rawRelativePath, options)
+  async deleteWorkspaceFile(rawRelativePath: string, options: { mode: IdeExecutionMode }) {
+    const res = await deleteWorkspaceFileSafe(this.target.workspacePath, rawRelativePath, options)
+    invalidateWorkspaceFileListCache(this.target.workspacePath)
+    return res
   }
 
-  deleteDirectory(
+  async deleteDirectory(
     rawRelativePath: string,
     options: { mode: IdeExecutionMode; recursive?: boolean }
   ) {
-    return deleteWorkspaceDirectorySafe({
+    const res = await deleteWorkspaceDirectorySafe({
       rawRelativePath,
       mode: options.mode,
       recursive: options.recursive,
       resolveSafePath: (raw) => resolveSafeWorkspacePath(this.target.workspacePath, raw)
     })
+    invalidateWorkspaceFileListCache(this.target.workspacePath)
+    return res
   }
 
-  async searchFiles(query: string, maxResults = 50): Promise<string[]> {
+  async searchFiles(query: string, maxResults = 50, signal?: AbortSignal): Promise<string[]> {
     const q = query.trim().toLowerCase()
-    const { files } = await listWorkspaceRelativeFiles(this.target.workspacePath, { maxFiles: 600 })
-    const filtered = q ? files.filter((f) => f.toLowerCase().includes(q)) : files
-    return filtered.slice(0, maxResults)
+    const { files } = await listWorkspaceRelativeFiles(this.target.workspacePath, {
+      maxFiles: maxResults,
+      nameFilter: q || undefined,
+      signal
+    })
+    return files.slice(0, maxResults)
   }
 
   searchCode(
     query: string,
-    options?: { pathPrefix?: string; caseSensitive?: boolean; maxResults?: number }
+    options?: {
+      pathPrefix?: string
+      caseSensitive?: boolean
+      maxResults?: number
+      signal?: AbortSignal
+    }
   ): Promise<CodeSearchMatch[]> {
     return searchWorkspaceCodeMatches({
       workspacePath: this.target.workspacePath,
@@ -279,26 +225,32 @@ export class LocalIdeWorkspaceGateway implements IdeWorkspaceGateway {
   }
 
   getDiagnostics(signal?: AbortSignal): Promise<WorkspaceDiagnosticResult> {
-    return probeWorkspaceDiagnostics(this.target, signal)
+    return probeWorkspaceDiagnostics(this.target, signal, (cmd, opts) =>
+      this.runShellCommand(cmd, opts)
+    )
   }
 
   async getGitDiffSummary(): Promise<string | null> {
-    if (!existsSync(join(this.target.workspacePath, '.git'))) {
+    const insideRes = await this.runShellCommand('git rev-parse --is-inside-work-tree', {
+      timeoutMs: 8_000
+    })
+    if (insideRes.exitCode !== 0 || insideRes.stdout.trim() !== 'true') {
       return null
     }
     const statusRes = await this.runShellCommand('git status --short', { timeoutMs: 15_000 })
-    const diffRes = await this.runShellCommand('git diff', { timeoutMs: 20_000 })
-    const sections: string[] = []
-    if (statusRes.stdout.trim()) {
-      sections.push(`### git status --short\n${statusRes.stdout.trim()}`)
-    }
-    if (diffRes.stdout.trim()) {
-      const trimmedDiff =
-        diffRes.stdout.length > 32_000
-          ? `${diffRes.stdout.slice(0, 32_000)}\n... [diff truncated]`
-          : diffRes.stdout
-      sections.push(`### git diff\n\`\`\`diff\n${trimmedDiff}\n\`\`\``)
-    }
+    const diffHeadRes = await this.runShellCommand('git diff HEAD', { timeoutMs: 20_000 })
+    const diffRes =
+      diffHeadRes.exitCode === 0 && diffHeadRes.stdout.trim()
+        ? diffHeadRes
+        : await this.runShellCommand('git diff', { timeoutMs: 20_000 })
+    const rawDiff =
+      diffRes.stdout.length > 32_000
+        ? `${diffRes.stdout.slice(0, 32_000)}\n... [diff truncated]`
+        : diffRes.stdout
+    const sections = [
+      statusRes.stdout.trim() ? `### git status --short\n${statusRes.stdout.trim()}` : '',
+      rawDiff.trim() ? `### git diff\n\`\`\`diff\n${rawDiff}\n\`\`\`` : ''
+    ].filter(Boolean)
     return sections.length > 0 ? sections.join('\n\n') : null
   }
 

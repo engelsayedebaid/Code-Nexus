@@ -1,12 +1,4 @@
-import {
-  AlertTriangle,
-  Braces,
-  Check,
-  FileCode,
-  Package,
-  Palette,
-  Sparkles
-} from 'lucide-react'
+import { AlertTriangle, Braces, Check, FileCode, Package, Palette, Sparkles } from 'lucide-react'
 import type {
   OpenVsxActiveCapability,
   OpenVsxInstalledExtension,
@@ -107,7 +99,8 @@ export function IdeExtensionCompatibilityCard({
               <div className="flex items-center gap-1.5">
                 <Sparkles className="size-3 shrink-0" />
                 <span>
-                  Themes: {installedRecord.contributions.themes.map((item) => item.label).join(', ')}
+                  Themes:{' '}
+                  {installedRecord.contributions.themes.map((item) => item.label).join(', ')}
                 </span>
               </div>
             )}

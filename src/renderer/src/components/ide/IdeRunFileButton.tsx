@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ExternalLink, Play, TerminalSquare } from 'lucide-react'
+import { ChevronDown, ExternalLink, Loader2, Play, TerminalSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { detectLanguage } from '../../../../shared/editor-language/editor-language-detect'
 import {
@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslate } from '@/i18n/use-translate'
 import {
   isRevealOrEditorOpenBlocked,
@@ -157,11 +157,15 @@ export function IdeRunFileButton({ file }: { file: OpenFile }): React.JSX.Elemen
       getIdeFileRunnerSpec(file.filePath, language, 'posix')
     )
 
+  if (!isPotentiallyRunnable) {
+    return null
+  }
+
   const runFile = async (override?: {
     destination?: IdeRunDestination
     shell?: string
   }): Promise<void> => {
-    if (!isPotentiallyRunnable || running) {
+    if (running) {
       return
     }
     const targetDestination = override?.destination ?? effectiveDestination
@@ -169,11 +173,7 @@ export function IdeRunFileButton({ file }: { file: OpenFile }): React.JSX.Elemen
     setRunning(true)
     try {
       if (targetDestination === 'external') {
-        if (
-          externalBlocked ||
-          revealOwner === 'unresolved' ||
-          !window.api.shell.runInExternalTerminal
-        ) {
+        if (externalBlocked || !window.api?.shell?.runInExternalTerminal) {
           showLocalPathOpenBlockedToast()
           return
         }
@@ -238,17 +238,9 @@ export function IdeRunFileButton({ file }: { file: OpenFile }): React.JSX.Elemen
           commands: [...spec.candidates]
         })
         const matched = spec.candidates.find((candidate) => found.includes(candidate))
-        if (!matched) {
-          toast.error(
-            t(
-              'ide.missingRunner',
-              '{{commands}} was not found on PATH. Install it, add it to PATH, and restart the app.',
-              { commands: spec.candidates.join(' / ') }
-            )
-          )
-          return
+        if (matched) {
+          executable = matched
         }
-        executable = matched
       }
 
       const command = spec.buildCommand(executable)
@@ -282,29 +274,31 @@ export function IdeRunFileButton({ file }: { file: OpenFile }): React.JSX.Elemen
   return (
     <DropdownMenu modal={false}>
       <div className="flex h-6 shrink-0 items-stretch overflow-hidden rounded border border-border/60 text-muted-foreground">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="flex items-center justify-center px-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-                disabled={!canRunWithActiveShell || running}
-                onClick={() => void runFile()}
-                aria-label={t('ide.runFile', 'Run file')}
-              >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center justify-center px-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+              disabled={!canRunWithActiveShell || running}
+              onClick={() => void runFile()}
+              aria-label={t('ide.runFile', 'Run file')}
+            >
+              {running ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
                 <Play className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={4}>
-              {runTooltip}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={4}>
+            {runTooltip}
+          </TooltipContent>
+        </Tooltip>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             className="flex items-center justify-center border-l border-border/60 px-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-            disabled={!isPotentiallyRunnable || running}
+            disabled={running}
             aria-label={t('ide.runOptions', 'Run options')}
           >
             <ChevronDown className="size-3" />
@@ -320,7 +314,9 @@ export function IdeRunFileButton({ file }: { file: OpenFile }): React.JSX.Elemen
           onValueChange={(value) => {
             const next: IdeRunDestination = value === 'external' ? 'external' : 'bottom'
             setIdeRunDestination(next)
-            void runFile({ destination: next })
+            if (canRunWithActiveShell) {
+              void runFile({ destination: next })
+            }
           }}
         >
           <DropdownMenuRadioItem value="bottom" className="gap-2">
@@ -341,7 +337,14 @@ export function IdeRunFileButton({ file }: { file: OpenFile }): React.JSX.Elemen
           value={effectiveShell}
           onValueChange={(value) => {
             setIdeRunShell(value)
-            void runFile({ shell: value })
+            const pickedOption = shellOptions.find((option) => option.id === value)
+            const pickedDialect = resolveIdeRunnerShellDialect(
+              value === 'default' ? pickedOption?.iconShell : value,
+              showWindowsShellMenu ? (isWslWorktree ? 'posix' : 'powershell') : 'posix'
+            )
+            if (getIdeFileRunnerSpec(file.filePath, language, pickedDialect)) {
+              void runFile({ shell: value })
+            }
           }}
         >
           {shellOptions.map((option) => (

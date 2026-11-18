@@ -5,6 +5,7 @@ import { hasSplitLandingGroup } from './split-landing-groups'
 // Last user-close lands on welcome; failed-create cleanup preserves selection.
 type LandingState = Pick<
   AppState,
+  | 'appMode'
   | 'activeWorktreeId'
   | 'unifiedTabsByWorktree'
   | 'tabsByWorktree'
@@ -24,6 +25,7 @@ export function landsOnEmptiedWorktree(
   remainingTabs: number
 ): boolean {
   return (
+    current.appMode !== 'ide' &&
     current.activeWorktreeId === worktreeId &&
     remainingTabs === 0 &&
     (current.tabsByWorktree[worktreeId] ?? []).length === 0 &&

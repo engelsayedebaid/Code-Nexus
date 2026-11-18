@@ -65,6 +65,22 @@ export async function applyFolderOrMoveOperation(
     if (!moveRes.ok) {
       throw new Error(moveRes.message)
     }
+    const movedSha = ctx.baselineShaByFile.get(fromRel)
+    if (movedSha !== undefined) {
+      ctx.baselineShaByFile.set(normalized, movedSha)
+      ctx.baselineShaByFile.set(fromRel, null)
+    }
+    const fromCp = ctx.checkpoint.files.find((f) => f.relativePath === fromRel)
+    if (fromCp && !ctx.checkpoint.files.some((f) => f.relativePath === normalized)) {
+      ctx.checkpoint.files.push({
+        relativePath: normalized,
+        existedBefore: false,
+        beforeContent: null,
+        afterContent: fromCp.afterContent ?? fromCp.beforeContent,
+        status: 'pending'
+      })
+      fromCp.afterContent = null
+    }
     modifiedFilesSet.add(normalized)
     cb.emit({
       type: 'file_renamed',
@@ -101,6 +117,7 @@ export async function applyFolderOrMoveOperation(
     if (!delDirRes.ok) {
       throw new Error(delDirRes.message)
     }
+    modifiedFilesSet.add(normalized)
     cb.emit({
       type: 'folder_deleted',
       conversationId: conv.id,

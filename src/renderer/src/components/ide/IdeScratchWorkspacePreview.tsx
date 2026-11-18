@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { FileCode2, FolderOpen, Sparkles } from 'lucide-react'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { Button } from '@/components/ui/button'
+import { useTranslate } from '@/i18n/use-translate'
 import { useAppStore } from '@/store'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import { cn } from '@/lib/class-names'
@@ -12,6 +13,7 @@ import { IDE_SCRATCH_PREVIEW_FILE_EVENT } from './ide-scratch-preview-navigation
 const RUNNING = new Set(['analyzing', 'planning', 'executing', 'verifying'])
 
 export function IdeScratchWorkspacePreview(): React.JSX.Element | null {
+  const t = useTranslate()
   const conversation = useIdeAgentStore((state) => state.activeConversation)
   const followAgent = useAppStore((state) => state.ideFollowAgent)
   const openModal = useAppStore((state) => state.openModal)
@@ -70,7 +72,7 @@ export function IdeScratchWorkspacePreview(): React.JSX.Element | null {
           )}
           <div className="min-w-0">
             <p className="truncate text-xs font-medium text-foreground">
-              {arabic ? 'مساحة العمل المؤقتة' : 'Scratch workspace'}
+              {arabic ? 'مساحة العمل المؤقتة' : t('ide.scratchWorkspace', 'Scratch workspace')}
             </p>
             <p className="truncate font-mono text-2xs text-muted-foreground">
               {conversation.workspacePath}
@@ -81,14 +83,14 @@ export function IdeScratchWorkspacePreview(): React.JSX.Element | null {
           {followAgent
             ? arabic
               ? 'متابعة الوكيل مفعّلة'
-              : 'Following agent'
+              : t('ide.followingAgent', 'Following agent')
             : arabic
               ? 'متابعة الوكيل متوقفة'
-              : 'Follow agent off'}
+              : t('ide.followAgentOff', 'Follow agent off')}
         </span>
         <Button size="xs" variant="outline" onClick={openProject}>
           <FolderOpen className="size-3" />
-          {arabic ? 'فتح مشروع' : 'Open project'}
+          {arabic ? 'فتح مشروع' : t('ide.openProject', 'Open project')}
         </Button>
       </header>
 
@@ -134,9 +136,9 @@ export function IdeScratchWorkspacePreview(): React.JSX.Element | null {
                 <pre className="min-w-max py-2 font-mono text-xs leading-5 text-foreground">
                   {lines.map((line, index) => (
                     <div
-                      key={`${index}:${line}`}
+                      key={index}
                       className={cn(
-                        'grid grid-cols-[3.25rem_minmax(0,1fr)] px-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150',
+                        'grid grid-cols-[3.25rem_minmax(0,1fr)] px-2',
                         index >= Math.max(0, lines.length - 3) && running && 'bg-accent/35'
                       )}
                     >

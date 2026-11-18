@@ -15,6 +15,10 @@ export type IdeProviderModelOption = {
   isDefault?: boolean
   contextWindowTokens?: number
   supportsStreaming?: boolean
+  family?: 'anthropic' | 'openai' | 'gemini' | 'deepseek' | 'moonshot' | 'generic'
+  preferredEditFormat?: 'search_replace' | 'unified_diff' | 'whole_file'
+  supportsReasoningEffort?: boolean
+  promptDelivery?: 'stdin' | 'argv' | 'file'
 }
 
 export type IdeProviderAgentOption = {
@@ -39,14 +43,37 @@ export type IdeContextBudgetSummary = {
   stackLabels?: string[]
 }
 
+export type IdeRunTelemetrySummary = {
+  runId: string
+  agentId: string
+  modelId: string
+  startedAt: number
+  finishedAt: number
+  durationMs: number
+  llmCalls: number
+  promptChars: number
+  completionChars: number
+  estimatedInputTokens: number
+  estimatedOutputTokens: number
+  toolCalls: number
+  blockedToolCalls: number
+  failedEdits: number
+  recoveredErrors: number
+  subagentRuns: number
+  compactedMessages: number
+  verificationChecksRun: number
+  verificationChecksPassed: number
+}
+
 export type IdeEditorHighlightTarget = {
+  worktreeId?: string
   relativePath: string
   startLine: number
   endLine: number
   cursorLine?: number
   cursorColumn?: number
   label: string
-  status?: 'streaming' | 'revealing' | 'committed'
+  status?: 'streaming' | 'revealing' | 'committed' | 'navigation'
   progressPercent?: number
   updatedAt: number
 }

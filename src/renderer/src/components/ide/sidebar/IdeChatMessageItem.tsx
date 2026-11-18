@@ -1,94 +1,53 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  FileCode2,
-  Terminal,
-  XCircle
-} from 'lucide-react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown, ChevronRight, Copy } from 'lucide-react'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { markdownMessageDirection } from '@/components/sidebar/comment-markdown-direction'
+import {
+  MarkdownDirectionToggle,
+  useMarkdownDirectionOverride
+} from '@/components/sidebar/MarkdownDirectionToggle'
+import { SecuritySurface } from '@/components/ui/security-surface'
 import { cn } from '@/lib/class-names'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
-import {
-  hasArabicText,
-  isArabicIdeConversation
-} from '../../../../../shared/ide-agent/ide-language'
-import type {
-  IdeChatMessage,
-  IdeCommandExecutionRecord,
-  IdeConversation,
-  IdeProviderAgentOption,
-  IdeTaskPlan
-} from '../../../../../shared/ide-agent/ide-agent-types'
+import type { IdeCommandExecutionRecord } from '../../../../../shared/ide-agent/ide-agent-types'
 import { AppIcon } from '@/components/icons/app-icon'
-import { formatIdeFileCount, getIdeChatCopy, getIdeModeLabel } from './ide-chat-copy'
+import { IdeAlertCard } from './IdeAlertCard'
+import { getIdeChatCopy, getIdeModeLabel } from './ide-chat-copy'
+import {
+  areIdeChatMessagePropsEqual,
+  resolveDisplayContent,
+  resolveDisplayModelLabel,
+  type IdeChatMessageItemProps
+} from './ide-chat-message-equality'
 import { IdeChatMarkdown } from './IdeChatMarkdown'
+import { IdeChatMessageCommandList } from './IdeChatMessageCommandList'
+import { IdeChatTurnChangesCard } from './IdeChatTurnChangesCard'
 import { IdePlanProposalCard } from './IdePlanProposalCard'
 import { IdeToolActivityTimeline } from './IdeToolActivityTimeline'
 import { IdeMessageAttachmentsList } from './IdeMessageAttachmentsList'
-import { openWorkspaceFileInEditor } from './ide-workspace-navigation'
 
-const LEGACY_PLAN_MARKDOWN_PREFIX =
-  /^### (?:Proposed Implementation Plan|خطة التنفيذ المقترحة) \(v\d+\)/
-
-function resolveDisplayModelLabel(
-  providers: readonly IdeProviderAgentOption[],
-  agentId?: string,
-  modelId?: string
-): string | null {
-  if (!modelId) {
-    return null
-  }
-  const provider = providers.find((p) => p.id === agentId)
-  const model = provider?.models.find((m) => m.id === modelId)
-  return model?.label ?? modelId
-}
-
-function resolveDisplayContent(
-  message: IdeChatMessage,
-  linkedPlan: IdeTaskPlan | undefined,
-  arabic: boolean
-): string {
-  if (!linkedPlan) {
-    return message.text
-  }
-  if (LEGACY_PLAN_MARKDOWN_PREFIX.test(message.text.trimStart())) {
-    if (linkedPlan.intro?.trim()) {
-      return linkedPlan.intro.trim()
-    }
-    return arabic
-      ? `جهّزت لك خطة العمل (${formatIdeFileCount(linkedPlan.affectedFiles.length, true)}).`
-      : `Prepared an implementation plan (${formatIdeFileCount(linkedPlan.affectedFiles.length, false)}).`
-  }
-  return message.text
-}
-
-export function IdeChatMessageItem({
+export const IdeChatMessageItem = React.memo(function IdeChatMessageItem({
   message,
   conversation,
   providers,
+  providersLoading = false,
+  worktreeSelector,
   plansById,
-  commandsById
-}: {
-  message: IdeChatMessage
-  conversation: IdeConversation
-  providers: IdeProviderAgentOption[]
-  plansById: Map<string, IdeTaskPlan>
-  commandsById: Map<string, IdeCommandExecutionRecord>
-}) {
+  commandsById,
+  isLatestMessage = false
+}: IdeChatMessageItemProps) {
   const linkedPlan = message.planId ? plansById.get(message.planId) : undefined
   const linkedCommands = (message.commandIds ?? [])
     .map((id) => commandsById.get(id))
     .filter((c): c is IdeCommandExecutionRecord => Boolean(c))
-  const isUser = message.role === 'user'
-  const commandLiveOutput = useIdeAgentStore((s) => s.commandLiveOutput)
+  const controlRun = useIdeAgentStore((s) => s.controlRun)
+  const refreshProviders = useIdeAgentStore((s) => s.refreshProviders)
+  const updateSettings = useIdeAgentStore((s) => s.updateSettings)
+  const clearError = useIdeAgentStore((s) => s.clearError)
 
   const [copied, setCopied] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
-  const [expandedCommands, setExpandedCommands] = useState<Record<string, boolean>>({})
+  const [directionOverride, setDirectionOverride] = useMarkdownDirectionOverride(message.id)
   const copyTimerRef = useRef<number | null>(null)
   useEffect(() => {
     return () => {
@@ -98,13 +57,12 @@ export function IdeChatMessageItem({
     }
   }, [])
 
-  const isArabic =
-    hasArabicText(message.text) ||
-    (linkedPlan
-      ? hasArabicText(`${linkedPlan.requestSummary ?? ''}\n${linkedPlan.objective}`)
-      : false) ||
-    isArabicIdeConversation(conversation.messages)
-  const copy = getIdeChatCopy(isArabic)
+  const copy = getIdeChatCopy()
+  const scratchWorkspace = conversation.workspaceKey.startsWith('ide-scratch:')
+  const timeLabel = new Date(message.createdAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 
   const handleCopy = useCallback(async (text: string) => {
     try {
@@ -126,30 +84,83 @@ export function IdeChatMessageItem({
     }
   }, [])
 
-  if (isUser) {
+  if (message.role === 'user') {
+    const autoUserDir = markdownMessageDirection(message.text)
+    const effectiveUserDir = directionOverride === 'auto' ? autoUserDir : directionOverride
     return (
-      <div data-testid={`ide-chat-message-${message.role}`} className="flex justify-end">
-        <div className="max-w-[88%] space-y-2">
-          {message.attachments && message.attachments.length > 0 ? (
-            <IdeMessageAttachmentsList
-              conversationId={conversation.id}
-              attachments={message.attachments}
-              align="end"
-              sensitiveFileLabel={copy.sensitiveFile}
-            />
-          ) : null}
-          <div
-            dir="auto"
-            className="whitespace-pre-wrap break-words rounded-2xl rounded-ee-md bg-muted px-3.5 py-2 text-xs leading-relaxed text-foreground"
+      <div
+        dir="ltr"
+        data-testid="ide-chat-message-user"
+        className={cn(
+          'group flex w-full flex-col items-end gap-1',
+          !isLatestMessage && '[content-visibility:auto] [contain-intrinsic-size:auto_72px]'
+        )}
+      >
+        {message.attachments && message.attachments.length > 0 ? (
+          <IdeMessageAttachmentsList
+            conversationId={conversation.id}
+            attachments={message.attachments}
+            align="end"
+            sensitiveFileLabel={copy.sensitiveFile}
+          />
+        ) : null}
+        <div
+          dir={effectiveUserDir}
+          className={cn(
+            'max-w-[85%] rounded-2xl border border-border/60 bg-chat-user-surface px-3.5 py-2 text-sm leading-relaxed text-chat-foreground-strong shadow-xs',
+            effectiveUserDir === 'rtl' ? 'text-right' : 'text-left'
+          )}
+        >
+          <IdeChatMarkdown
+            content={message.text}
+            directionOverride={directionOverride}
+            className="orca-ide-user-bubble-markdown text-sm leading-relaxed text-chat-foreground-strong"
+          />
+        </div>
+        <div className="flex select-none items-center gap-1 px-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <button
+            type="button"
+            onClick={() => void handleCopy(message.text)}
+            aria-label={copied ? copy.copied : copy.copyMessage}
+            title={copied ? copy.copied : copy.copyMessage}
+            className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            {message.text}
-          </div>
+            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          </button>
+          <MarkdownDirectionToggle
+            value={directionOverride}
+            onChange={setDirectionOverride}
+            compact
+          />
+          <span className="tabular-nums text-3xs text-muted-foreground/75">{timeLabel}</span>
         </div>
       </div>
     )
   }
 
-  // Only render the interactive plan card on the proposal message itself (not again on the final completion receipt).
+  if (message.role === 'system') {
+    return (
+      <div
+        data-testid="ide-chat-message-system"
+        dir="ltr"
+        className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-1.5 text-left text-2xs leading-relaxed text-muted-foreground"
+      >
+        {message.text}
+      </div>
+    )
+  }
+
+  const displayContent = resolveDisplayContent(message, linkedPlan)
+
+  if (
+    isLatestMessage &&
+    message.streaming &&
+    displayContent.trim().length === 0 &&
+    !message.error
+  ) {
+    return null
+  }
+
   const isProposalForPlan =
     Boolean(linkedPlan) &&
     !message.modifiedFiles &&
@@ -157,54 +168,106 @@ export function IdeChatMessageItem({
     linkedPlan?.approvalRecord?.note !== 'auto_approved_small_change' &&
     conversation.messages.find((m) => m.planId === linkedPlan?.id)?.id === message.id
 
-  const displayContent = resolveDisplayContent(message, linkedPlan, isArabic)
   const modelLabel = resolveDisplayModelLabel(providers, message.agentId, message.modelId)
-  const timeLabel = new Date(message.createdAt).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  })
   const runActivity =
     !isProposalForPlan && message.runId
       ? conversation.activity.filter(
-          (ev) => ev.runId === message.runId && ev.type !== 'editor.edit_chunk'
+          (ev) =>
+            ev.runId === message.runId &&
+            ev.type !== 'editor.edit_chunk' &&
+            ev.type !== 'analysis.started' &&
+            ev.type !== 'analysis.completed'
         )
       : []
 
+  const canRetryTurn =
+    isLatestMessage &&
+    !message.streaming &&
+    (conversation.status === 'failed' || conversation.status === 'canceled')
+
+  const handleRetry = () => {
+    clearError()
+    void controlRun({
+      conversationId: conversation.id,
+      ...(conversation.activeRunId ? { runId: conversation.activeRunId } : {}),
+      action: 'retry'
+    })
+  }
+
   return (
     <div
-      dir={isArabic ? 'rtl' : 'ltr'}
       data-testid={`ide-chat-message-${message.role}`}
-      className="group space-y-2.5 px-0.5"
+      className={cn(
+        'group space-y-2 px-0.5',
+        !isLatestMessage &&
+          !message.streaming &&
+          '[content-visibility:auto] [contain-intrinsic-size:auto_180px]'
+      )}
     >
-      <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+      <div dir="ltr" className="flex items-center gap-1.5 text-left text-2xs text-muted-foreground">
         <AppIcon name="sparkles" className="size-3 text-foreground/80" />
-        <span className="font-medium text-foreground">Nexus</span>
+        <span className="font-medium text-foreground">Carver</span>
         <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-0 text-3xs text-muted-foreground">
-          {getIdeModeLabel(message.mode, isArabic)}
+          {getIdeModeLabel(message.mode)}
         </span>
         {modelLabel ? (
           <span className="truncate text-2xs text-muted-foreground/75">{modelLabel}</span>
         ) : null}
         {message.streaming ? <LoadingSpinner className="size-3 text-muted-foreground" /> : null}
 
-        <div className="ms-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1">
           {displayContent && !message.streaming ? (
-            <button
-              type="button"
-              onClick={() => void handleCopy(displayContent)}
-              aria-label={copied ? copy.copied : copy.copyMessage}
-              title={copied ? copy.copied : copy.copyMessage}
-              className={cn(
-                'inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100',
-                copied ? 'text-emerald-500 opacity-100' : 'opacity-0 group-hover:opacity-100'
-              )}
-            >
-              {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-            </button>
+            <>
+              <MarkdownDirectionToggle
+                value={directionOverride}
+                onChange={setDirectionOverride}
+                compact
+              />
+              <button
+                type="button"
+                onClick={() => void handleCopy(displayContent)}
+                aria-label={copied ? copy.copied : copy.copyMessage}
+                title={copied ? copy.copied : copy.copyMessage}
+                className={cn(
+                  'inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100',
+                  copied ? 'text-foreground opacity-100' : 'opacity-0 group-hover:opacity-100'
+                )}
+              >
+                {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+              </button>
+            </>
           ) : null}
           <span className="tabular-nums text-2xs text-muted-foreground/70">{timeLabel}</span>
         </div>
       </div>
+
+      {runActivity.length > 0 ? (
+        <div dir="ltr" className="text-left">
+          <button
+            type="button"
+            onClick={() => setShowActivity((prev) => !prev)}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            {showActivity ? (
+              <ChevronDown className="size-3 shrink-0" />
+            ) : (
+              <ChevronRight className="size-3 shrink-0" />
+            )}
+            <span>
+              Explored {runActivity.length} {runActivity.length === 1 ? 'action' : 'actions'}
+            </span>
+          </button>
+          {showActivity ? (
+            <div className="mt-1 rounded-lg border border-border/60 bg-muted/15 p-2">
+              <IdeToolActivityTimeline
+                events={runActivity}
+                scratchWorkspace={scratchWorkspace}
+                compact
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {message.attachments && message.attachments.length > 0 ? (
         <IdeMessageAttachmentsList
@@ -219,143 +282,61 @@ export function IdeChatMessageItem({
         <IdeChatMarkdown
           content={displayContent}
           streaming={message.streaming}
-          className="leading-[1.65]"
+          directionOverride={directionOverride}
+          className="rounded-lg pr-1"
         />
       ) : message.streaming ? (
-        <p className="text-xs text-muted-foreground">{copy.thinking}</p>
-      ) : null}
-
-      {message.modifiedFiles && message.modifiedFiles.length > 0 ? (
-        <div className="space-y-1.5 rounded-xl border border-border/60 bg-card/60 p-2.5">
-          <div className="text-2xs font-medium text-muted-foreground">
-            {copy.modifiedFilesTitle} ({message.modifiedFiles.length})
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {message.modifiedFiles.map((filePath) => (
-              <button
-                key={filePath}
-                type="button"
-                onClick={() => openWorkspaceFileInEditor(filePath)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background px-2 py-1 font-mono text-2xs text-foreground transition-colors hover:bg-accent/60"
-              >
-                <FileCode2 className="size-3 shrink-0 text-emerald-500" />
-                <span dir="ltr">{filePath}</span>
-              </button>
-            ))}
-          </div>
+        <div
+          dir="ltr"
+          className="inline-flex items-center gap-1.5 text-left text-xs text-muted-foreground"
+        >
+          <LoadingSpinner className="size-3.5 shrink-0" />
+          <span className="shimmer shimmer-duration-2000 font-medium">{copy.thinking}</span>
         </div>
       ) : null}
 
-      {runActivity.length > 0 ? (
-        <div className="rounded-xl border border-border/60 bg-card/60 p-2.5">
-          <button
-            type="button"
-            onClick={() => setShowActivity((prev) => !prev)}
-            className="flex w-full items-center gap-1.5 text-2xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            {showActivity ? (
-              <ChevronDown className="size-3 shrink-0" />
-            ) : (
-              <ChevronRight className="size-3 shrink-0" />
-            )}
-            <span>
-              {isArabic ? `النشاط (${runActivity.length})` : `Activity (${runActivity.length})`}
-            </span>
-          </button>
-          {showActivity ? (
-            <div className="mt-2">
-              <IdeToolActivityTimeline events={runActivity} isArabic={isArabic} compact />
-            </div>
-          ) : null}
-        </div>
+      {!isProposalForPlan ? (
+        <IdeChatTurnChangesCard
+          conversation={conversation}
+          runId={message.runId}
+          modifiedFiles={message.modifiedFiles}
+          scratchWorkspace={scratchWorkspace}
+        />
       ) : null}
 
-      {linkedCommands.length > 0 ? (
-        <div className="space-y-1 rounded-xl border border-border/60 bg-card/60 p-2.5">
-          <div className="text-2xs font-medium text-muted-foreground">{copy.commandsTitle}</div>
-          <div className="space-y-1">
-            {linkedCommands.map((cmd) => {
-              const liveText = commandLiveOutput[cmd.id]
-              const combinedOutput = (liveText ?? `${cmd.stdoutTail}${cmd.stderrTail}`).trim()
-              const hasOutput = combinedOutput.length > 0
-              const expanded = Boolean(expandedCommands[cmd.id])
-              return (
-                <div key={cmd.id} className="rounded-md bg-muted/50 px-2 py-1 text-2xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      disabled={!hasOutput}
-                      onClick={() =>
-                        setExpandedCommands((prev) => ({ ...prev, [cmd.id]: !prev[cmd.id] }))
-                      }
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                    >
-                      {hasOutput ? (
-                        expanded ? (
-                          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-                        )
-                      ) : (
-                        <Terminal className="size-3 shrink-0 text-muted-foreground" />
-                      )}
-                      <span dir="ltr" className="truncate font-mono text-foreground/90">
-                        {cmd.command}
-                      </span>
-                    </button>
-                    <span
-                      className={cn(
-                        'inline-flex shrink-0 items-center gap-1 font-medium',
-                        cmd.status === 'passed' ? 'text-emerald-500' : 'text-destructive'
-                      )}
-                    >
-                      {cmd.status === 'passed' ? (
-                        <CheckCircle2 className="size-3" />
-                      ) : (
-                        <XCircle className="size-3" />
-                      )}
-                      {cmd.status === 'passed'
-                        ? copy.passed
-                        : cmd.status === 'failed'
-                          ? copy.failed
-                          : cmd.status}
-                    </span>
-                  </div>
-                  {expanded && hasOutput ? (
-                    <pre
-                      dir="ltr"
-                      className="scrollbar-sleek mt-1.5 max-h-36 overflow-auto rounded bg-background/80 p-1.5 font-mono text-3xs whitespace-pre-wrap text-muted-foreground"
-                    >
-                      {combinedOutput.slice(-2000)}
-                    </pre>
-                  ) : null}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
+      <IdeChatMessageCommandList commands={linkedCommands} />
 
       {linkedPlan && isProposalForPlan ? (
-        <IdePlanProposalCard
-          plan={linkedPlan}
-          conversationId={message.conversationId}
-          agentId={conversation.agentId || providers[0]?.id || 'codex'}
-          modelId={conversation.modelId || providers[0]?.defaultModelId || ''}
-          providers={providers}
-          compact
-          arabic={isArabic}
-        />
+        <SecuritySurface>
+          <IdePlanProposalCard
+            plan={linkedPlan}
+            conversationId={message.conversationId}
+            agentId={conversation.agentId || providers[0]?.id || 'codex'}
+            modelId={conversation.modelId || providers[0]?.defaultModelId || ''}
+            providers={providers}
+            compact
+          />
+        </SecuritySurface>
       ) : null}
 
       {message.error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-2xs text-destructive">
-          <AppIcon name="error" className="mt-0.5 size-3.5 shrink-0" />
-          <span dir="auto" className="break-words">
-            {message.error}
-          </span>
-        </div>
+        <IdeAlertCard
+          error={message.error}
+          conversation={conversation}
+          providers={providers}
+          providersLoading={providersLoading}
+          onRetry={canRetryTurn ? handleRetry : undefined}
+          onRefreshModels={() => void refreshProviders(worktreeSelector ?? undefined)}
+          onSelectFallbackModel={({ agentId, modelId }) => {
+            clearError()
+            void updateSettings({
+              conversationId: conversation.id,
+              agentId,
+              modelId
+            })
+          }}
+        />
       ) : null}
     </div>
   )
-}
+}, areIdeChatMessagePropsEqual)

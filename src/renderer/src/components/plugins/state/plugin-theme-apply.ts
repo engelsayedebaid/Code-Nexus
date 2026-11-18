@@ -1,4 +1,5 @@
 import { toast } from 'sonner'
+import { INLINE_ACTION_CLASS_NAMES } from '@/components/ui/sonner'
 import { translate } from '@/i18n/i18n'
 import { resolveDocumentTheme } from '@/app-shell/appearance/document-theme'
 import { pluginAppThemeSlotUpdate } from '../../../../../shared/plugin-theme-settings'
@@ -158,6 +159,8 @@ export async function applyPluginThemesNow(pluginKey: string): Promise<boolean> 
     theme: settings.theme,
     pluginAppThemeLight: settings.pluginAppThemeLight ?? null,
     pluginAppThemeDark: settings.pluginAppThemeDark ?? null,
+    editorThemeLight: settings.editorThemeLight ?? null,
+    editorThemeDark: settings.editorThemeDark ?? null,
     pluginIconTheme: settings.pluginIconTheme ?? null,
     terminalThemeDark: settings.terminalThemeDark,
     terminalThemeLight: settings.terminalThemeLight,
@@ -168,7 +171,11 @@ export async function applyPluginThemesNow(pluginKey: string): Promise<boolean> 
   }
   let next: Partial<GlobalSettings> = {}
   for (const theme of appSlots) {
-    next = { ...next, ...pluginAppThemeSlotUpdate(theme.base, theme.id) }
+    next = {
+      ...next,
+      ...pluginAppThemeSlotUpdate(theme.base, theme.id),
+      ...(theme.base === 'dark' ? { editorThemeDark: null } : { editorThemeLight: null })
+    }
   }
   if (dark !== currentlyDark) {
     next.theme = dark ? 'dark' : 'light'
@@ -195,11 +202,45 @@ export async function applyPluginThemesNow(pluginKey: string): Promise<boolean> 
     }),
     {
       duration: PLUGIN_ACTION_TOAST_DURATION_MS,
+      classNames: INLINE_ACTION_CLASS_NAMES,
       action: {
         label: translate('auto.components.settings.pluginThemeApply.switchBack', 'Switch back'),
         onClick: () => void useAppStore.getState().updateSettings(previous)
       }
     }
   )
+  return true
+}
+
+export async function applySpecificPluginThemeById(themeId: string): Promise<boolean> {
+  const apps = await usePluginThemeStore.getState().fetchEntries()
+  const picked = apps.find((candidate) => candidate.id === themeId)
+  const { settings, updateSettings } = useAppStore.getState()
+  if (!picked || !settings) {
+    return false
+  }
+  const previous: Partial<GlobalSettings> = {
+    theme: settings.theme,
+    pluginAppThemeLight: settings.pluginAppThemeLight ?? null,
+    pluginAppThemeDark: settings.pluginAppThemeDark ?? null,
+    editorThemeLight: settings.editorThemeLight ?? null,
+    editorThemeDark: settings.editorThemeDark ?? null
+  }
+  const currentlyDark = resolveDocumentTheme(settings.theme)
+  const wantsDark = picked.base === 'dark'
+  const next: Partial<GlobalSettings> = {
+    ...pluginAppThemeSlotUpdate(picked.base, picked.id),
+    ...(wantsDark ? { editorThemeDark: null } : { editorThemeLight: null }),
+    ...(wantsDark !== currentlyDark ? { theme: wantsDark ? 'dark' : 'light' } : {})
+  }
+  await updateSettings(next)
+  toast.success(`Now using ${picked.label}`, {
+    duration: PLUGIN_ACTION_TOAST_DURATION_MS,
+    classNames: INLINE_ACTION_CLASS_NAMES,
+    action: {
+      label: 'Switch back',
+      onClick: () => void useAppStore.getState().updateSettings(previous)
+    }
+  })
   return true
 }

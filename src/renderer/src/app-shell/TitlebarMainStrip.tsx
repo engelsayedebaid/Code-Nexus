@@ -75,7 +75,7 @@ export function TitlebarMainStrip({ layout }: { layout: AppChromeLayout }): Reac
           </TooltipContent>
         </Tooltip>
       )}
-      {hasCustomTitleBar && !layout.workspaceChromeActive ? <TitlebarIdeModeButton /> : null}
+      {!layout.workspaceChromeActive ? <TitlebarIdeModeButton /> : null}
       {/* The open sidebar already renders its close button. */}
       {layout.showRightSidebarControls && !layout.rightSidebarOpen ? <RightSidebarToggle /> : null}
       {/* Reserve the custom window-controls overlay’s width. */}

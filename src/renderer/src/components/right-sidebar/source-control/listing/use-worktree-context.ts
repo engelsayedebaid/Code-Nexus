@@ -205,6 +205,9 @@ export function useSourceControlWorktreeContext() {
   const activeRepoRuntimeEnvironmentId =
     activeRepoTarget?.kind === 'environment' ? activeRepoTarget.environmentId : null
   const rightSidebarOpen = useSourceControlState((s) => s.rightSidebarOpen)
+  const ideSourceControlVisible = useSourceControlState(
+    (s) => s.appMode === 'ide' && s.sidebarOpen && s.ideDevelopmentView === 'source-control'
+  )
 
   const isFolder = activeRepo ? isFolderRepo(activeRepo) : false
   const worktreePath = activeWorktree?.path ?? null
@@ -220,7 +223,9 @@ export function useSourceControlWorktreeContext() {
       : undefined
   )
   // Mounted hidden sidebars and collapsed/off-screen sections keep their view but poll nothing.
-  const isBranchVisible = rightSidebarTab === 'source-control' && rightSidebarOpen && sectionActive
+  const isBranchVisible =
+    ((rightSidebarTab === 'source-control' && rightSidebarOpen) || ideSourceControlVisible) &&
+    sectionActive
   const hasUncommittedEntries = entries.length > 0
 
   return {

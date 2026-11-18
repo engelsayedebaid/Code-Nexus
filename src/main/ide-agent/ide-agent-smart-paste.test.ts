@@ -60,8 +60,8 @@ class TestGateway implements IdeWorkspaceGateway {
     return { ok: true as const, content: null, sha256: null }
   }
 
-  async writeTextChunk(relativePath: string): Promise<WorkspaceWriteResult> {
-    return { ok: true, relativePath, sha256: 'sha', created: true }
+  async writeTextChunk(relativePath: string, content: string): Promise<WorkspaceWriteResult> {
+    return { ok: true, relativePath, sha256: 'sha', created: true, persistedContent: content }
   }
 
   async deleteWorkspaceFile(_relativePath: string, _options: { mode: IdeExecutionMode }) {

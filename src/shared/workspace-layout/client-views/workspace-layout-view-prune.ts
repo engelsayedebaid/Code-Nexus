@@ -68,7 +68,7 @@ const terminalTabIds = (workspace: WorkspaceLayout): string[] =>
 const activeTabIdsForPrune = (workspace: WorkspaceLayout): string[] => [
   ...terminalTabIds(workspace),
   ...workspace.tabs
-    .filter((tab) => tab.contentType === 'agent-session')
+    .filter((tab) => tab.kind === 'agent-session')
     .flatMap((tab) => [tab.id, tab.entityId])
 ]
 

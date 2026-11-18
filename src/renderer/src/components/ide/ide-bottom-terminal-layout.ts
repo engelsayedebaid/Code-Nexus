@@ -160,7 +160,10 @@ export function findBottomTerminalTarget(
       }
     }
   }
-  return bottomGroupIds[0]
-    ? { kind: 'create-in-group', groupId: bottomGroupIds[0] }
+  const terminalHostingGroupId = bottomGroupIds.find((groupId) =>
+    unifiedTabs.some((tab) => tab.groupId === groupId && tab.contentType === 'terminal')
+  )
+  return terminalHostingGroupId
+    ? { kind: 'create-in-group', groupId: terminalHostingGroupId }
     : { kind: 'split-down', sourceGroupId: editorGroupId }
 }

@@ -1,8 +1,10 @@
 import {
+  IdeAgentCancelEnhancePromptParams,
   IdeAgentChangeDecisionParams,
   IdeAgentCreateConversationParams,
   IdeAgentDeleteConversationParams,
   IdeAgentEmptyParams,
+  IdeAgentEnhancePromptParams,
   IdeAgentGetConversationParams,
   IdeAgentListConversationsParams,
   IdeAgentPermissionDecisionParams,
@@ -18,7 +20,10 @@ import {
   IdeAgentTodosSaveParams,
   IdeAgentUpdateConversationParams
 } from '../../../../../shared/ide-agent/ide-agent-contract'
-import { getIdeAgentEngine } from '../../../../ide-agent/ide-agent-runtime-service'
+import {
+  getIdeAgentEngine,
+  getIdePromptEnhancementService
+} from '../../../../ide-agent/ide-agent-runtime-service'
 import { resolveIdeAgentScratchWorkspace } from '../../../../ide-agent/ide-agent-scratch-workspace'
 import { defineMethod, defineStreamingMethod } from '../../core'
 
@@ -153,6 +158,21 @@ export const IDE_AGENT_METHODS = [
     permission: 'workspace',
     params: IdeAgentReadAttachmentContentParams,
     handler: async (params, ctx) => getIdeAgentEngine(ctx.runtime).readAttachmentContent(params)
+  }),
+  defineMethod({
+    name: 'ideAgent.enhancePrompt',
+    permission: 'workspace',
+    params: IdeAgentEnhancePromptParams,
+    handler: async (params, ctx) =>
+      getIdePromptEnhancementService(ctx.runtime).enhancePrompt(params, ctx.signal)
+  }),
+  defineMethod({
+    name: 'ideAgent.cancelEnhancePrompt',
+    permission: 'workspace',
+    params: IdeAgentCancelEnhancePromptParams,
+    handler: async (params, ctx) => ({
+      cancelled: getIdePromptEnhancementService(ctx.runtime).cancel(params.requestId)
+    })
   }),
   defineStreamingMethod({
     name: 'ideAgent.subscribeEvents',

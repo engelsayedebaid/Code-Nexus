@@ -11,10 +11,11 @@ import {
   Star,
   Trash2
 } from 'lucide-react'
-import type {
-  OpenVsxExtensionSummary,
-  OpenVsxInstallOutcome,
-  OpenVsxInstalledExtension
+import { toast } from 'sonner'
+import {
+  toOpenVsxPluginKey,
+  type OpenVsxExtensionSummary,
+  type OpenVsxInstalledExtension
 } from '../../../../shared/openvsx/openvsx-types'
 import { cn } from '@/lib/class-names'
 import { Badge } from '@/components/ui/badge'
@@ -22,86 +23,23 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { applyPluginThemesNow } from '@/components/plugins/state/plugin-theme-apply'
+import {
+  applyPluginThemesNow,
+  applySpecificPluginThemeById
+} from '@/components/plugins/state/plugin-theme-apply'
+import { useAppStore } from '@/store'
+import {
+  capabilityBadgeLabels,
+  installedExtensionToSummary,
+  summarizeOpenVsxInstallOutcome
+} from './ide-extension-summary'
 import { IdeExtensionIcon, formatExtensionMetricCount } from './IdeExtensionIcon'
 
-export function installedExtensionToSummary(
-  ext: OpenVsxInstalledExtension
-): OpenVsxExtensionSummary {
-  return {
-    id: ext.id,
-    namespace: ext.namespace,
-    name: ext.name,
-    displayName: ext.displayName,
-    description: ext.description,
-    version: ext.version,
-    publishedBy: ext.publisher,
-    verified: ext.verified,
-    downloadCount: ext.downloadCount ?? 0,
-    averageRating: ext.averageRating,
-    iconUrl: ext.iconDataUrl,
-    repositoryUrl: ext.repositoryUrl,
-    homepageUrl: ext.homepageUrl,
-    license: ext.license,
-    categories: ext.categories,
-    tags: [],
-    extensionPackCount: ext.extensionPack.length > 0 ? ext.extensionPack.length : undefined,
-    dependenciesCount: ext.dependencies.length > 0 ? ext.dependencies.length : undefined
-  }
-}
-
-export function summarizeOpenVsxInstallOutcome(outcome: OpenVsxInstallOutcome): {
-  message: string
-  themePluginKey?: string
-} {
-  const primary = outcome.primaryExtension ?? outcome.installed[0]
-  if (!primary) {
-    return { message: 'Extension install completed.' }
-  }
-
-  const activeCaps = new Set<string>()
-  let hasUnsupportedHost = false
-  let themePluginKey: string | undefined
-
-  for (const item of outcome.installed) {
-    if (item.contributions.syntaxes.length > 0) activeCaps.add('syntax')
-    if (item.runtimeSupport.snippetCount > 0) activeCaps.add('snippets')
-    if (item.contributions.themes.length > 0 || item.contributions.iconThemes.length > 0) {
-      activeCaps.add('appearance themes')
-      themePluginKey = themePluginKey ?? `openvsx:${item.id}`
-    }
-    if (item.runtimeSupport.unsupportedCapabilities.length > 0) {
-      hasUnsupportedHost = true
-    }
-  }
-
-  const extraCount = Math.max(0, outcome.installed.length - 1)
-  const capSummary =
-    activeCaps.size > 0
-      ? `Active in Orca: ${Array.from(activeCaps).join(', ')}.`
-      : 'No declarative syntax, snippets, or themes included.'
-  const hostNote = hasUnsupportedHost ? ' LSP/Debugger/JS APIs remain inactive.' : ''
-  const failNote = outcome.failed.length > 0 ? ` (${outcome.failed.length} dependency failed)` : ''
-
-  return {
-    message: `Installed ${primary.displayName}${extraCount > 0 ? ` (+${extraCount} bundled)` : ''}. ${capSummary}${hostNote}${failNote}`,
-    themePluginKey
-  }
-}
-
-function capabilityBadgeLabels(ext: OpenVsxInstalledExtension): string[] {
-  const labels: string[] = []
-  if (ext.contributions.syntaxes.length > 0) labels.push('Syntax')
-  if (ext.runtimeSupport.snippetCount > 0) labels.push('Snippets')
-  if (ext.contributions.themes.length > 0) labels.push('Theme')
-  if (ext.contributions.iconThemes.length > 0) labels.push('Icons')
-  if (labels.length === 0 && ext.extensionPack.length > 0) labels.push('Pack')
-  if (labels.length === 0) labels.push('Host Only')
-  return labels
-}
+export { installedExtensionToSummary, summarizeOpenVsxInstallOutcome }
 
 type InstalledRowProps = {
   ext: OpenVsxInstalledExtension
@@ -109,7 +47,6 @@ type InstalledRowProps = {
   onSelect: () => void
   onSetEnabled: (extensionId: string, enabled: boolean) => Promise<void>
   onUninstall: (extensionId: string) => Promise<void>
-  onStatusMessage: (message: string) => void
 }
 
 export function InstalledExtensionRow({
@@ -117,13 +54,29 @@ export function InstalledExtensionRow({
   busy,
   onSelect,
   onSetEnabled,
-  onUninstall,
-  onStatusMessage
+  onUninstall
 }: InstalledRowProps): React.JSX.Element {
+  const activeDarkTheme = useAppStore((s) => s.settings?.pluginAppThemeDark)
+  const activeLightTheme = useAppStore((s) => s.settings?.pluginAppThemeLight)
+  const activeIconTheme = useAppStore((s) => s.settings?.pluginIconTheme)
+
   const canApplyTheme =
-    ext.enabled &&
-    (ext.contributions.themes.length > 0 || ext.contributions.iconThemes.length > 0)
+    ext.enabled && (ext.contributions.themes.length > 0 || ext.contributions.iconThemes.length > 0)
+  const isThemeActive =
+    canApplyTheme &&
+    (ext.contributions.themes.some((t) => t.id === activeDarkTheme || t.id === activeLightTheme) ||
+      ext.contributions.iconThemes.some((it) => it.id === activeIconTheme))
+
   const badges = capabilityBadgeLabels(ext)
+  const hasMultipleVariants = ext.contributions.themes.length > 1
+  const handleApplyNow = async (): Promise<void> => {
+    const applied = await applyPluginThemesNow(toOpenVsxPluginKey(ext.id))
+    if (!applied) {
+      toast.error(
+        `Could not activate ${ext.displayName}. Restart the app if main-process updates were just applied.`
+      )
+    }
+  }
 
   return (
     <div
@@ -150,8 +103,8 @@ export function InstalledExtensionRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1.5">
           <span className="truncate text-xs font-semibold text-foreground">{ext.displayName}</span>
-          <Badge variant="referenceLabel" className="shrink-0">
-            {ext.enabled ? 'Installed' : 'Disabled'}
+          <Badge variant="referenceLabel">
+            {!ext.enabled ? 'Disabled' : isThemeActive ? 'Active' : 'Installed'}
           </Badge>
         </div>
 
@@ -180,25 +133,63 @@ export function InstalledExtensionRow({
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
-            {canApplyTheme && (
+            {canApplyTheme && hasMultipleVariants ? (
+              <DropdownMenu dir="ltr">
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      'inline-flex h-5 items-center gap-1 rounded px-1.5 text-3xs font-medium transition-colors',
+                      isThemeActive
+                        ? 'border border-border bg-accent text-foreground'
+                        : 'bg-secondary text-secondary-foreground hover:bg-accent'
+                    )}
+                    title="Choose theme variant"
+                  >
+                    {isThemeActive ? (
+                      <Check className="size-2.5" />
+                    ) : (
+                      <Palette className="size-2.5" />
+                    )}
+                    <span>{isThemeActive ? 'Variant' : 'Apply'}</span>
+                    <ChevronDown className="size-2.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="bottom" className="w-52">
+                  <DropdownMenuLabel>Select Theme Variant</DropdownMenuLabel>
+                  {ext.contributions.themes.map((variant) => {
+                    const selected =
+                      variant.id === activeDarkTheme || variant.id === activeLightTheme
+                    return (
+                      <DropdownMenuItem
+                        key={variant.id}
+                        onClick={() => void applySpecificPluginThemeById(variant.id)}
+                      >
+                        <Check className={cn('size-3.5', !selected && 'opacity-0')} />
+                        <span className="truncate">{variant.label}</span>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : canApplyTheme ? (
               <button
                 type="button"
-                onClick={() => {
-                  void applyPluginThemesNow(`openvsx:${ext.id}`).then((applied) => {
-                    if (applied) {
-                      onStatusMessage(`Applied appearance from ${ext.displayName}.`)
-                    }
-                  })
-                }}
-                className="inline-flex h-5 items-center gap-1 rounded bg-secondary px-1.5 text-3xs font-medium text-secondary-foreground hover:bg-accent"
-                title="Apply theme / icons now"
+                onClick={() => void handleApplyNow()}
+                className={cn(
+                  'inline-flex h-5 items-center gap-1 rounded px-1.5 text-3xs font-medium transition-colors',
+                  isThemeActive
+                    ? 'border border-border bg-accent text-foreground'
+                    : 'bg-secondary text-secondary-foreground hover:bg-accent'
+                )}
+                title={isThemeActive ? 'Re-apply appearance' : 'Apply theme / icons now'}
               >
-                <Palette className="size-2.5" />
-                Apply
+                {isThemeActive ? <Check className="size-2.5" /> : <Palette className="size-2.5" />}
+                {isThemeActive ? 'Applied' : 'Apply'}
               </button>
-            )}
+            ) : null}
 
-            <DropdownMenu>
+            <DropdownMenu dir="ltr">
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -219,7 +210,7 @@ export function InstalledExtensionRow({
                   <span>{ext.enabled ? 'Disable' : 'Enable'}</span>
                 </DropdownMenuItem>
                 {canApplyTheme && (
-                  <DropdownMenuItem onClick={() => void applyPluginThemesNow(`openvsx:${ext.id}`)}>
+                  <DropdownMenuItem onClick={() => void handleApplyNow()}>
                     <Palette className="size-3.5" />
                     <span>Apply Theme / Icons</span>
                   </DropdownMenuItem>
@@ -319,7 +310,7 @@ export function MarketplaceExtensionRow({
                   {busy === 'installing' && <Loader2 className="size-2.5 animate-spin" />}
                   {busy === 'installing' ? 'Installing' : 'Install'}
                 </button>
-                <DropdownMenu>
+                <DropdownMenu dir="ltr">
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"

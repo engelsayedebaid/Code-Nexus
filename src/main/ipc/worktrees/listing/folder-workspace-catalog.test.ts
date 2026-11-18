@@ -8,6 +8,7 @@ import {
   createStore,
   testState
 } from '../../../persistence/persistence-test-harness'
+import { hostWorktreeTargetForRepo } from '../../../persistence/host-qualified-worktree-meta'
 import { getDefaultNoRepoWorkspacePath } from '../../floating-workspace-directory'
 import { getFolderWorkspaceInstanceId, getFolderWorkspaceRootId } from '../folder-workspace-model'
 import { listFolderWorkspaces } from './folder-workspace-catalog'
@@ -55,7 +56,9 @@ describe('listFolderWorkspaces', () => {
     expect(listFolderWorkspaces(store, noRepo)).toEqual([])
 
     const chatId = getFolderWorkspaceInstanceId(noRepo, 'chat-1')
-    store.setWorktreeMeta(chatId, { displayName: 'Testing conversation' })
+    store.setWorktreeMeta(hostWorktreeTargetForRepo(chatId, noRepo), {
+      displayName: 'Testing conversation'
+    })
 
     const listed = listFolderWorkspaces(store, noRepo)
     expect(listed.map((worktree) => worktree.id)).toEqual([chatId])

@@ -1,34 +1,37 @@
 import { useMemo, useState } from 'react'
 import {
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   ExternalLink,
   FileDiff,
+  GitCompareArrows,
   History,
   RotateCcw,
   Undo2
 } from 'lucide-react'
+import { FileTypeIcon } from '@/components/FileTypeIcon'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { cn } from '@/lib/class-names'
+import { openIdeChangeDiffInEditor } from '@/store/ide-agent/ide-diff-review-store'
 import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
 import type {
   IdeConversation,
   IdeFileChangeRecord
 } from '../../../../../shared/ide-agent/ide-agent-types'
+import { computeIdeDiffStats } from '../ide-diff-calculation'
+import { IdeInlineStructuredDiffPreview } from './IdeChatTurnChangesCard'
 import { openWorkspaceFileInEditor } from './ide-workspace-navigation'
-
-type DiffLine = { kind: 'context' | 'add' | 'remove'; text: string }
 
 function reviewStateLabel(state: IdeFileChangeRecord['acceptedState']): string {
   switch (state) {
     case 'pending':
-      return 'Review'
+      return 'Pending'
     case 'accepted':
-      return 'Kept'
+      return 'Accepted'
     case 'reverted':
       return 'Reverted'
     case 'conflict':
@@ -36,70 +39,43 @@ function reviewStateLabel(state: IdeFileChangeRecord['acceptedState']): string {
   }
 }
 
-function computeLineDiff(beforeText: string | null, afterText: string | null): DiffLine[] {
-  const beforeLines = beforeText !== null ? beforeText.split(/\r?\n/) : []
-  const afterLines = afterText !== null ? afterText.split(/\r?\n/) : []
-  if (beforeText === null) {
-    return afterLines.slice(0, 200).map((text) => ({ kind: 'add', text }))
-  }
-  if (afterText === null) {
-    return beforeLines.slice(0, 200).map((text) => ({ kind: 'remove', text }))
-  }
-
-  let prefix = 0
-  while (
-    prefix < beforeLines.length &&
-    prefix < afterLines.length &&
-    beforeLines[prefix] === afterLines[prefix]
-  ) {
-    prefix++
-  }
-
-  let suffix = 0
-  while (
-    suffix < beforeLines.length - prefix &&
-    suffix < afterLines.length - prefix &&
-    beforeLines[beforeLines.length - 1 - suffix] === afterLines[afterLines.length - 1 - suffix]
-  ) {
-    suffix++
-  }
-
-  const out: DiffLine[] = []
-  const contextStart = Math.max(0, prefix - 2)
-  for (let i = contextStart; i < prefix; i++) {
-    out.push({ kind: 'context', text: beforeLines[i] })
-  }
-  for (let i = prefix; i < beforeLines.length - suffix; i++) {
-    out.push({ kind: 'remove', text: beforeLines[i] })
-  }
-  for (let i = prefix; i < afterLines.length - suffix; i++) {
-    out.push({ kind: 'add', text: afterLines[i] })
-  }
-  const afterTailStart = Math.max(prefix, afterLines.length - suffix)
-  for (let i = afterTailStart; i < Math.min(afterLines.length, afterTailStart + 2); i++) {
-    out.push({ kind: 'context', text: afterLines[i] })
-  }
-  return out.slice(0, 220)
-}
-
 function ChangeDiffRow({
   change,
   conversationId,
-  scratchWorkspace
+  scratchWorkspace,
+  disabled
 }: {
   change: IdeFileChangeRecord
   conversationId: string
   scratchWorkspace: boolean
+  disabled: boolean
 }) {
   const decideChange = useIdeAgentStore((s) => s.decideChange)
   const [expanded, setExpanded] = useState(false)
-  const diffLines = useMemo(
-    () => (expanded ? computeLineDiff(change.beforeContent, change.afterContent) : []),
-    [change.afterContent, change.beforeContent, expanded]
+  const [busy, setBusy] = useState(false)
+  const stats = useMemo(
+    () => computeIdeDiffStats(change.beforeContent, change.afterContent),
+    [change.afterContent, change.beforeContent]
   )
 
+  const runDecision = async (action: 'accept' | 'reject') => {
+    setBusy(true)
+    try {
+      await decideChange({
+        conversationId,
+        action,
+        changeId: change.id
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="rounded-md border border-border/70 bg-card/70 text-xs overflow-hidden">
+    <div
+      dir="ltr"
+      className="overflow-hidden rounded-lg border border-border/70 bg-card/70 text-left text-xs"
+    >
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
         <button
           type="button"
@@ -111,25 +87,26 @@ function ChangeDiffRow({
           ) : (
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           )}
-          <span className="truncate font-mono text-[11px] font-medium text-foreground">
+          <FileTypeIcon filePath={change.relativePath} className="size-3.5 shrink-0" />
+          <span className="truncate font-mono text-2xs font-medium text-foreground">
             {change.relativePath}
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 font-mono text-3xs tabular-nums">
+            <span className="font-medium text-chat-diff-added">+{stats.added}</span>
+            <span className="font-medium text-chat-diff-removed">-{stats.removed}</span>
           </span>
         </button>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
-            {change.changeType}
-          </Badge>
+          <Badge variant="referenceLabel">{change.changeType}</Badge>
           <Badge
-            variant="outline"
-            className={cn(
-              'text-[10px] px-1.5 py-0 capitalize',
-              change.acceptedState === 'accepted' &&
-                'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
-              change.acceptedState === 'conflict' &&
-                'border-destructive/40 bg-destructive/10 text-destructive',
-              change.acceptedState === 'reverted' && 'text-muted-foreground'
-            )}
+            variant={
+              change.acceptedState === 'conflict'
+                ? 'destructive'
+                : change.acceptedState === 'accepted'
+                  ? 'secondary'
+                  : 'referenceLabel'
+            }
           >
             {reviewStateLabel(change.acceptedState)}
           </Badge>
@@ -137,59 +114,58 @@ function ChangeDiffRow({
       </div>
 
       {change.conflictMessage ? (
-        <div className="border-t border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
+        <div className="border-t border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-2xs text-destructive">
           {change.conflictMessage}
         </div>
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-1.5 border-t border-border/50 bg-muted/20 px-2.5 py-1.5">
-        <span className="text-[10.5px] text-muted-foreground">
-          {change.chunksApplied}/{change.totalChunks} chunks ·{' '}
-          {new Date(change.updatedAt).toLocaleTimeString()}
+        <span className="text-3xs tabular-nums text-muted-foreground">
+          {new Date(change.updatedAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit'
+          })}
         </span>
         <div className="flex items-center gap-1">
           <Button
             size="xs"
-            variant="ghost"
-            className="h-6 px-1.5 text-[10px]"
-            onClick={() =>
-              openWorkspaceFileInEditor(change.relativePath, undefined, scratchWorkspace)
-            }
+            variant="outline"
+            onClick={() => openIdeChangeDiffInEditor(change, scratchWorkspace)}
+            title="Compare Side-by-Side Before & After in main editor"
           >
-            <ExternalLink className="mr-1 size-2.5" />
-            Open
+            <GitCompareArrows className="size-2.5" />
+            Before / After
           </Button>
+          {change.changeType !== 'deleted' ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                openWorkspaceFileInEditor(change.relativePath, undefined, scratchWorkspace)
+              }
+            >
+              <ExternalLink className="size-2.5" />
+              Open
+            </Button>
+          ) : null}
           {change.acceptedState === 'pending' ? (
             <>
               <Button
                 size="xs"
-                variant="outline"
-                className="h-6 px-1.5 text-[10px]"
-                onClick={() =>
-                  void decideChange({
-                    conversationId,
-                    action: 'accept',
-                    changeId: change.id
-                  })
-                }
+                variant="ghost"
+                disabled={busy || disabled}
+                onClick={() => void runDecision('reject')}
               >
-                <Check className="mr-1 size-2.5" />
-                Accept
+                <Undo2 className="size-2.5" />
+                Revert
               </Button>
               <Button
                 size="xs"
-                variant="outline"
-                className="h-6 px-1.5 text-[10px]"
-                onClick={() =>
-                  void decideChange({
-                    conversationId,
-                    action: 'reject',
-                    changeId: change.id
-                  })
-                }
+                disabled={busy || disabled}
+                onClick={() => void runDecision('accept')}
               >
-                <Undo2 className="mr-1 size-2.5" />
-                Revert
+                <Check className="size-2.5" />
+                Accept
               </Button>
             </>
           ) : null}
@@ -197,27 +173,11 @@ function ChangeDiffRow({
       </div>
 
       {expanded ? (
-        <div className="scrollbar-sleek max-h-60 overflow-auto border-t border-border/60 bg-background/90 p-2 font-mono text-[11px] leading-snug">
-          {diffLines.length === 0 ? (
-            <span className="text-muted-foreground">No textual diff available.</span>
-          ) : (
-            diffLines.map((line, index) => (
-              <div
-                key={index}
-                className={cn(
-                  'whitespace-pre px-1.5',
-                  line.kind === 'add' && 'bg-[var(--diff-added-background)] text-chat-diff-added',
-                  line.kind === 'remove' &&
-                    'bg-[var(--diff-removed-background)] text-chat-diff-removed',
-                  line.kind === 'context' && 'text-muted-foreground'
-                )}
-              >
-                {line.kind === 'add' ? '+ ' : line.kind === 'remove' ? '- ' : '  '}
-                {line.text}
-              </div>
-            ))
-          )}
-        </div>
+        <IdeInlineStructuredDiffPreview
+          beforeContent={change.beforeContent}
+          afterContent={change.afterContent}
+          maxHeightClass="max-h-60"
+        />
       ) : null}
     </div>
   )
@@ -225,9 +185,15 @@ function ChangeDiffRow({
 
 export function IdeCodeChangesView({ conversation }: { conversation: IdeConversation | null }) {
   const decideChange = useIdeAgentStore((s) => s.decideChange)
+  const [restoringCheckpointId, setRestoringCheckpointId] = useState<string | null>(null)
+  const [batchBusy, setBatchBusy] = useState(false)
   const changes = useMemo(
     () => [...(conversation?.fileChanges ?? [])].sort((a, b) => b.updatedAt - a.updatedAt),
     [conversation?.fileChanges]
+  )
+  const pendingChanges = useMemo(
+    () => changes.filter((c) => c.acceptedState === 'pending'),
+    [changes]
   )
   const checkpoints = useMemo(
     () => [...(conversation?.checkpoints ?? [])].sort((a, b) => b.createdAt - a.createdAt),
@@ -244,11 +210,33 @@ export function IdeCodeChangesView({ conversation }: { conversation: IdeConversa
     conversation?.status === 'executing' ||
     conversation?.status === 'verifying'
   const progress = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
+  const scratchWorkspace = conversation?.workspaceKey.startsWith('ide-scratch:') === true
+
+  const runBatchDecision = async (action: 'accept' | 'reject') => {
+    if (!conversation) {
+      return
+    }
+    setBatchBusy(true)
+    try {
+      for (const item of pendingChanges) {
+        await decideChange({
+          conversationId: conversation.id,
+          action,
+          changeId: item.id
+        })
+      }
+    } finally {
+      setBatchBusy(false)
+    }
+  }
 
   return (
-    <div className="scrollbar-sleek flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-2.5">
-      {conversation && (running || totalFiles > 0) ? (
-        <section className="rounded-xl border border-border bg-card p-3 shadow-xs motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200">
+    <div
+      dir="ltr"
+      className="scrollbar-sleek flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-2.5 text-left"
+    >
+      {conversation && (running || totalFiles > 0 || pendingChanges.length > 0) ? (
+        <section className="rounded-xl border border-border bg-card p-3 shadow-xs">
           <div className="flex items-start gap-2.5">
             {running ? (
               <LoadingSpinner className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -258,7 +246,7 @@ export function IdeCodeChangesView({ conversation }: { conversation: IdeConversa
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-foreground">
-                  {running ? 'Applying approved changes' : 'Changes ready for review'}
+                  {running ? 'Applying approved changes' : 'Review Before & After changes'}
                 </p>
                 {totalFiles > 0 ? (
                   <span className="text-2xs tabular-nums text-muted-foreground">
@@ -267,17 +255,47 @@ export function IdeCodeChangesView({ conversation }: { conversation: IdeConversa
                 ) : null}
               </div>
               <p className="mt-0.5 text-2xs leading-relaxed text-muted-foreground">
-                Review does not block execution. Accept marks a change as kept; Revert restores its
-                checkpoint content.
+                Inspect side-by-side Before & After in the editor, then Accept or Revert each file.
               </p>
               {totalSteps > 0 ? <Progress value={progress} className="mt-2 h-1" /> : null}
+              {!running && pendingChanges.length > 0 ? (
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={batchBusy}
+                    onClick={() => openIdeChangeDiffInEditor(pendingChanges[0], scratchWorkspace)}
+                  >
+                    <GitCompareArrows className="size-3" />
+                    Compare in Editor
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={batchBusy}
+                    onClick={() => void runBatchDecision('reject')}
+                  >
+                    <RotateCcw className="size-3" />
+                    Revert All
+                  </Button>
+                  <Button
+                    size="xs"
+                    disabled={batchBusy}
+                    onClick={() => void runBatchDecision('accept')}
+                  >
+                    <CheckCheck className="size-3" />
+                    Accept All ({pendingChanges.length})
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
       ) : null}
+
       {conversation && checkpoints.length > 0 ? (
         <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
             Checkpoints ({checkpoints.length})
           </div>
           {checkpoints.map((cp) => (
@@ -290,23 +308,29 @@ export function IdeCodeChangesView({ conversation }: { conversation: IdeConversa
                   <History className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{cp.label}</span>
                 </div>
-                <div className="text-[10.5px] text-muted-foreground">
+                <div className="text-3xs tabular-nums text-muted-foreground">
                   {cp.files.length} files · {new Date(cp.createdAt).toLocaleTimeString()}
                 </div>
               </div>
               <Button
                 size="xs"
                 variant="outline"
-                className="h-6 px-2 text-[10.5px] shrink-0"
-                onClick={() =>
-                  void decideChange({
-                    conversationId: conversation.id,
-                    action: 'restore_checkpoint',
-                    checkpointId: cp.id
-                  })
-                }
+                className="shrink-0"
+                disabled={running || restoringCheckpointId !== null}
+                onClick={async () => {
+                  setRestoringCheckpointId(cp.id)
+                  try {
+                    await decideChange({
+                      conversationId: conversation.id,
+                      action: 'restore_checkpoint',
+                      checkpointId: cp.id
+                    })
+                  } finally {
+                    setRestoringCheckpointId(null)
+                  }
+                }}
               >
-                <RotateCcw className="mr-1 size-2.5" />
+                <RotateCcw className="size-2.5" />
                 Restore
               </Button>
             </div>
@@ -315,7 +339,7 @@ export function IdeCodeChangesView({ conversation }: { conversation: IdeConversa
       ) : null}
 
       <div className="space-y-1.5">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tracked File Changes ({changes.length})
         </div>
         {!conversation || changes.length === 0 ? (
@@ -329,7 +353,8 @@ export function IdeCodeChangesView({ conversation }: { conversation: IdeConversa
               key={change.id}
               change={change}
               conversationId={conversation.id}
-              scratchWorkspace={conversation.workspaceKey.startsWith('ide-scratch:')}
+              scratchWorkspace={scratchWorkspace}
+              disabled={running}
             />
           ))
         )}

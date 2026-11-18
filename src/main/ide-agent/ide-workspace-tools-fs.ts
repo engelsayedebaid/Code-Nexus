@@ -1,32 +1,15 @@
-import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import {
   classifySensitiveFilePath,
   isUnsafeRelativePath,
   normalizeWorkspaceRelativePath
 } from '../../shared/ide-agent/ide-plan-policy'
 import type { IdeExecutionMode } from '../../shared/ide-agent/ide-agent-types'
-
-const IGNORED_SEARCH_DIRS = new Set([
-  '.git',
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-  'coverage',
-  '__pycache__',
-  '.venv',
-  'venv',
-  'target'
-])
-
-const BINARY_EXT_PATTERN =
-  /\.(png|jpe?g|gif|webp|ico|bmp|svgz|woff2?|ttf|eot|otf|pdf|zip|gz|tar|7z|exe|dll|so|dylib|node|bin|mp3|mp4|webm|mov|sqlite|db|lockb)$/i
+import {
+  listWorkspaceFilesWithRipgrep,
+  searchWorkspaceCodeWithRipgrep
+} from './harness/ripgrep-workspace-search'
 
 export type CodeSearchMatch = {
   relativePath: string
@@ -36,47 +19,50 @@ export type CodeSearchMatch = {
 
 export type SafePathResolver = (rawRelativePath: string) => Promise<string>
 
+async function statIfPresent(targetPath: string) {
+  try {
+    return await stat(targetPath)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+}
+
 export async function listWorkspaceRelativeFiles(
   workspacePath: string,
-  options?: { maxFiles?: number; maxDepth?: number; includeFolders?: boolean }
-): Promise<{ files: string[]; folders: string[] }> {
-  const maxFiles = options?.maxFiles ?? 600
-  const maxDepth = options?.maxDepth ?? 7
-  const files: string[] = []
-  const folders: string[] = []
-
-  const walk = async (relDir: string, depth: number): Promise<void> => {
-    if (depth > maxDepth || files.length >= maxFiles) {
-      return
-    }
-    const absDir = relDir ? join(workspacePath, relDir) : workspacePath
-    let entries
-    try {
-      entries = await readdir(absDir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    entries.sort((a, b) => a.name.localeCompare(b.name))
-    for (const entry of entries) {
-      if (files.length >= maxFiles) {
-        break
-      }
-      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        if (!IGNORED_SEARCH_DIRS.has(entry.name)) {
-          if (options?.includeFolders) {
-            folders.push(relPath)
-          }
-          await walk(relPath, depth + 1)
-        }
-      } else if (entry.isFile()) {
-        files.push(relPath)
+  options?: {
+    maxFiles?: number
+    maxDepth?: number
+    includeFolders?: boolean
+    pathPrefix?: string
+    nameFilter?: string
+    signal?: AbortSignal
+  }
+): Promise<{ files: string[]; folders: string[]; blockedSecretFiles: string[] }> {
+  const { files, blockedSecretFiles } = await listWorkspaceFilesWithRipgrep({
+    workspacePath,
+    maxFiles: options?.maxFiles ?? 1_200,
+    pathPrefix: options?.pathPrefix,
+    nameFilter: options?.nameFilter,
+    signal: options?.signal
+  })
+  files.sort((a, b) => a.localeCompare(b))
+  const foldersSet = new Set<string>()
+  if (options?.includeFolders) {
+    for (const rel of files) {
+      const dir = dirname(rel).replaceAll('\\', '/')
+      if (dir && dir !== '.') {
+        foldersSet.add(dir)
       }
     }
   }
-
-  await walk('', 0)
-  return { files, folders }
+  return {
+    files,
+    folders: [...foldersSet].sort((a, b) => a.localeCompare(b)),
+    blockedSecretFiles
+  }
 }
 
 export async function createWorkspaceDirectorySafe(params: {
@@ -96,9 +82,8 @@ export async function createWorkspaceDirectorySafe(params: {
   }
   try {
     const fullPath = await params.resolveSafePath(normalized)
-    const existed = existsSync(fullPath)
-    if (existed) {
-      const info = await stat(fullPath)
+    const info = await statIfPresent(fullPath)
+    if (info) {
       if (!info.isDirectory()) {
         return { ok: false, message: `"${normalized}" already exists as a file.` }
       }
@@ -142,20 +127,21 @@ export async function renameWorkspacePathSafe(params: {
   try {
     const fullFrom = await params.resolveSafePath(fromRel)
     const fullTo = await params.resolveSafePath(toRel)
-    if (!existsSync(fullFrom)) {
+    const fromInfo = await statIfPresent(fullFrom)
+    if (!fromInfo) {
       return { ok: false, message: `Source path "${fromRel}" does not exist.` }
     }
-    if (existsSync(fullTo)) {
+    const toInfo = await statIfPresent(fullTo)
+    if (fromRel.toLowerCase() !== toRel.toLowerCase() && toInfo !== null) {
       return { ok: false, message: `Destination path "${toRel}" already exists.` }
     }
-    const info = await stat(fullFrom)
     await mkdir(dirname(fullTo), { recursive: true })
     await rename(fullFrom, fullTo)
     return {
       ok: true,
       fromRelativePath: fromRel,
       toRelativePath: toRel,
-      isDirectory: info.isDirectory()
+      isDirectory: fromInfo.isDirectory()
     }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -180,10 +166,10 @@ export async function deleteWorkspaceDirectorySafe(params: {
   }
   try {
     const fullPath = await params.resolveSafePath(normalized)
-    if (!existsSync(fullPath)) {
+    const info = await statIfPresent(fullPath)
+    if (!info) {
       return { ok: true, relativePath: normalized }
     }
-    const info = await stat(fullPath)
     if (!info.isDirectory()) {
       return { ok: false, message: `"${normalized}" is not a directory.` }
     }
@@ -197,64 +183,18 @@ export async function deleteWorkspaceDirectorySafe(params: {
 export async function searchWorkspaceCodeMatches(params: {
   workspacePath: string
   query: string
-  resolveSafePath: SafePathResolver
+  resolveSafePath?: SafePathResolver
   pathPrefix?: string
   caseSensitive?: boolean
   maxResults?: number
+  signal?: AbortSignal
 }): Promise<CodeSearchMatch[]> {
-  const needleRaw = params.query.trim()
-  if (!needleRaw) {
-    return []
-  }
-  const maxResults = Math.min(100, Math.max(1, params.maxResults ?? 40))
-  const needle = params.caseSensitive ? needleRaw : needleRaw.toLowerCase()
-  const prefix = params.pathPrefix
-    ? normalizeWorkspaceRelativePath(params.pathPrefix).toLowerCase()
-    : ''
-  const { files } = await listWorkspaceRelativeFiles(params.workspacePath, { maxFiles: 500 })
-  const matches: CodeSearchMatch[] = []
-
-  for (const relPath of files) {
-    if (matches.length >= maxResults) {
-      break
-    }
-    if (prefix && !relPath.toLowerCase().startsWith(prefix)) {
-      continue
-    }
-    if (BINARY_EXT_PATTERN.test(relPath)) {
-      continue
-    }
-    if (classifySensitiveFilePath(relPath, 'read-context') === 'send_secret_context') {
-      continue
-    }
-    try {
-      const fullPath = await params.resolveSafePath(relPath)
-      const info = await stat(fullPath)
-      if (!info.isFile() || info.size > 256 * 1024) {
-        continue
-      }
-      const raw = await readFile(fullPath, 'utf8')
-      if (raw.includes('\u0000')) {
-        continue
-      }
-      const lines = raw.split(/\r?\n/)
-      for (let i = 0; i < lines.length; i += 1) {
-        const lineText = lines[i]
-        const hay = params.caseSensitive ? lineText : lineText.toLowerCase()
-        if (hay.includes(needle)) {
-          matches.push({
-            relativePath: relPath,
-            line: i + 1,
-            preview: lineText.trim().slice(0, 220)
-          })
-          if (matches.length >= maxResults) {
-            break
-          }
-        }
-      }
-    } catch {
-      // Skip unreadable files.
-    }
-  }
-  return matches
+  return searchWorkspaceCodeWithRipgrep({
+    workspacePath: params.workspacePath,
+    query: params.query,
+    pathPrefix: params.pathPrefix,
+    caseSensitive: params.caseSensitive,
+    maxResults: params.maxResults,
+    signal: params.signal
+  })
 }

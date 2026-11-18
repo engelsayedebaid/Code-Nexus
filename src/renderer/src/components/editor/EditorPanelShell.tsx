@@ -4,6 +4,11 @@ import { findFirstIndexedWorktree } from '@/lib/workspace/ownership/worktree-run
 import type { OpenFile } from '@/store/slices/editor/types/open-file'
 import { EditorContent } from './EditorContent'
 import { EditorPanelHeader } from './EditorPanelHeader'
+import { IdeBeforeAfterDiffEditor } from '@/components/ide/IdeBeforeAfterDiffEditor'
+import { IdeEditorChangeReviewBar } from '@/components/ide/IdeEditorChangeReviewBar'
+import { useIdeDiffReviewStore } from '@/store/ide-agent/ide-diff-review-store'
+import { useIdeAgentStore } from '@/store/ide-agent/ide-agent-store'
+import { normalizeWorkspaceRelativePath } from '../../../../shared/ide-agent/ide-plan-policy'
 import { UntitledFileRenameDialog } from './UntitledFileRenameDialog'
 import type { getEditorPanelRenderModel } from './editor-panel-render-model'
 import type { DiffContent, FileContent } from './editor-panel-content-types'
@@ -95,6 +100,26 @@ export function EditorPanelShell({
   onRenameConfirm,
   markdownAnnotationsEnabled
 }: EditorPanelShellProps): JSX.Element {
+  const appMode = useAppStore((s) => s.appMode)
+  const reviewingChangeId = useIdeDiffReviewStore((s) => s.reviewingChangeId)
+  const setReviewingChangeId = useIdeDiffReviewStore((s) => s.setReviewingChangeId)
+  const ideConversation = useIdeAgentStore((s) => s.activeConversation)
+  const activeReviewChange =
+    appMode === 'ide' && reviewingChangeId && ideConversation
+      ? (ideConversation.fileChanges.find((c) => {
+          if (c.id !== reviewingChangeId) {
+            return false
+          }
+          if (c.changeType === 'deleted') {
+            return true
+          }
+          return (
+            normalizeWorkspaceRelativePath(c.relativePath).toLowerCase() ===
+            normalizeWorkspaceRelativePath(activeFile.relativePath).toLowerCase()
+          )
+        }) ?? null)
+      : null
+
   return (
     <div ref={panelRef} className="flex flex-col flex-1 min-w-0 min-h-0">
       {shouldShowEditorPanelHeader(activeFile, model.isCombinedDiff) && (
@@ -134,39 +159,50 @@ export function EditorPanelShell({
           createArtifactRequest={createArtifactRequest}
         />
       )}
-      <Suspense fallback={<EditorLoadingFallback />}>
-        <EditorContent
-          activeFile={activeFile}
-          viewStateScopeId={activeViewStateId ?? activeFile.id}
-          fileContents={fileContents}
-          diffContents={diffContents}
-          editBuffers={editorDrafts}
-          openFiles={openFiles}
-          worktreeEntries={model.worktreeEntries}
-          resolvedLanguage={model.resolvedLanguage}
-          isMarkdown={model.isMarkdown}
-          isMermaid={model.isMermaid}
-          isSvg={model.isSvg}
-          isCsv={model.isCsv}
-          isNotebook={model.isNotebook}
-          customEditor={model.activeCustomEditor}
-          mdViewMode={model.mdViewMode}
-          inlineMarkdownRenderState={model.inlineMarkdownRenderState}
-          isChangesMode={model.isDiffSurface && !model.isSingleDiff}
-          sideBySide={sideBySide}
-          pendingEditorReveal={pendingEditorReveal}
-          handleContentChange={onContentChange}
-          handleContentChangeForFile={onContentChangeForFile}
-          handleDirtyStateHint={onDirtyStateHint}
-          handleSave={onSave}
-          handleSaveForFile={onSaveForFile}
-          reloadContent={onReloadContent}
-          showMarkdownTableOfContents={showMarkdownTableOfContents}
-          showMarkdownFrontmatter={markdownFrontmatterVisible}
-          onCloseMarkdownTableOfContents={onCloseMarkdownTableOfContents}
-          markdownAnnotationsEnabled={markdownAnnotationsEnabled}
+      <IdeEditorChangeReviewBar
+        activeFile={activeFile}
+        onReloadFile={() => onReloadContent(activeFile)}
+      />
+      {activeReviewChange ? (
+        <IdeBeforeAfterDiffEditor
+          change={activeReviewChange}
+          onClose={() => setReviewingChangeId(null)}
         />
-      </Suspense>
+      ) : (
+        <Suspense fallback={<EditorLoadingFallback />}>
+          <EditorContent
+            activeFile={activeFile}
+            viewStateScopeId={activeViewStateId ?? activeFile.id}
+            fileContents={fileContents}
+            diffContents={diffContents}
+            editBuffers={editorDrafts}
+            openFiles={openFiles}
+            worktreeEntries={model.worktreeEntries}
+            resolvedLanguage={model.resolvedLanguage}
+            isMarkdown={model.isMarkdown}
+            isMermaid={model.isMermaid}
+            isSvg={model.isSvg}
+            isCsv={model.isCsv}
+            isNotebook={model.isNotebook}
+            customEditor={model.activeCustomEditor}
+            mdViewMode={model.mdViewMode}
+            inlineMarkdownRenderState={model.inlineMarkdownRenderState}
+            isChangesMode={model.isDiffSurface && !model.isSingleDiff}
+            sideBySide={sideBySide}
+            pendingEditorReveal={pendingEditorReveal}
+            handleContentChange={onContentChange}
+            handleContentChangeForFile={onContentChangeForFile}
+            handleDirtyStateHint={onDirtyStateHint}
+            handleSave={onSave}
+            handleSaveForFile={onSaveForFile}
+            reloadContent={onReloadContent}
+            showMarkdownTableOfContents={showMarkdownTableOfContents}
+            showMarkdownFrontmatter={markdownFrontmatterVisible}
+            onCloseMarkdownTableOfContents={onCloseMarkdownTableOfContents}
+            markdownAnnotationsEnabled={markdownAnnotationsEnabled}
+          />
+        </Suspense>
+      )}
       <UntitledFileRenameDialog
         open={renameDialogFile !== null}
         currentName={renameDialogFile?.relativePath ?? ''}

@@ -27,7 +27,7 @@ import { EditorRevealFlash } from './EditorRevealFlash'
 import { SplitPaneLanding } from './SplitPaneLanding'
 import { isSplitLandingGroup } from '@/store/slices/tabs/split-landing-groups'
 import { TitlebarIdeModeButton } from '@/app-shell/TitlebarIdeModeButton'
-import { hasCustomTitleBar } from '@/app-shell/app-window-chrome'
+import { IdeEmptyEditorWatermark } from '@/components/ide/IdeEmptyEditorWatermark'
 
 const EditorPanel = lazy(() => import('../editor/EditorPanel'))
 const EMPTY_GROUPS: readonly TabGroup[] = []
@@ -75,6 +75,7 @@ export default function TabGroupPanel({
   hoveredTabInsertion?: HoveredTabInsertion | null
 }): React.JSX.Element {
   const t = useTranslate()
+  const appMode = useAppStore((state) => state.appMode)
   const rightSidebarOpen = useAppStore((state) => state.rightSidebarOpen)
   const sidebarOpen = useAppStore((state) => state.sidebarOpen)
   const reserveRightTitlebarSpace = reserveClosedExplorerToggleSpace && !rightSidebarOpen
@@ -317,7 +318,7 @@ export default function TabGroupPanel({
                 groupId={groupId}
                 isFocused={isFocused}
               />
-              {hasCustomTitleBar && (!hasSplitGroups || reserveClosedExplorerToggleSpace) ? (
+              {!hasSplitGroups || reserveClosedExplorerToggleSpace ? (
                 <TitlebarIdeModeButton />
               ) : null}
               {hasSplitGroups ? (
@@ -397,6 +398,8 @@ export default function TabGroupPanel({
             autoFocus={isFocused}
             onClosePane={hasSplitGroups ? commands.closeGroup : undefined}
           />
+        ) : appMode === 'ide' && model.groupTabs.length === 0 ? (
+          <IdeEmptyEditorWatermark onNewTerminal={commands.newTerminalTab} />
         ) : null}
 
         {/* Why: terminal/browser/simulator/structured-chat panes render at the worktree level; tab activation only changes overlay visibility and never remounts a live surface. */}

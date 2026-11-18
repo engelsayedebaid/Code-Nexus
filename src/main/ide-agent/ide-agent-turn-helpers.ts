@@ -1,20 +1,30 @@
 import { randomUUID } from 'node:crypto'
-import {
-  computeIdePlanHash,
-  normalizeWorkspaceRelativePath
-} from '../../shared/ide-agent/ide-plan-policy'
+import { computeIdePlanHash } from '../../shared/ide-agent/ide-plan-policy'
 import type {
+  IdeChatAttachment,
   IdeChatMessage,
   IdeConversation,
-  IdePlanFileAction,
   IdePlanStep,
   IdeTaskPlan
 } from '../../shared/ide-agent/ide-agent-types'
 import { runToolAssistedInspectionLoop } from './ide-agent-harness'
-import { buildReviewPrompt, type parsePlanJsonFromAiOutput } from './ide-agent-prompts'
+import {
+  buildReviewPrompt,
+  unwrapDirectAnswerJsonIfPresent,
+  type parsePlanJsonFromAiOutput
+} from './ide-agent-prompts'
 import { IdeContextBudgetTracker } from './ide-context-budget'
 import type { ActiveRunControl, EngineHostOps } from './ide-agent-runtime-types'
 import type { IdeWorkspaceGateway, WorkspaceInspectionSnapshot } from './ide-workspace-gateway'
+import { gatherRankedTurnContext, type RankedContextSnippet } from './harness/context-engine'
+import {
+  resolveModelExecutionProfile,
+  type ResolvedModelExecutionProfile
+} from './harness/model-capability-registry'
+import {
+  loadTrustedWorkspaceInstructions,
+  type WorkspaceInstructionsBundle
+} from './harness/workspace-instructions-loader'
 
 export { filterAndHydrateAttachments } from './ide-attachment-prompt-context'
 
@@ -25,58 +35,57 @@ export async function inspectWorkspaceForTurn(params: {
   gateway: IdeWorkspaceGateway
   text: string
   activeFilePath?: string
-}): Promise<{
-  snapshot: WorkspaceInspectionSnapshot
-  budget: IdeContextBudgetTracker
-  activeFileContent: { relativePath: string; content: string } | null
-}> {
+  openFilePaths?: readonly string[]
+  attachments?: readonly IdeChatAttachment[]
+}) {
   const { host, conv, run, gateway } = params
   host.setRunStatus(conv, run.runId, 'analyzing', 'Inspecting workspace context...')
-  host.appendActivity(conv, {
-    runId: run.runId,
-    role: run.config.multiAgentEnabled ? 'planner' : 'orchestrator',
-    type: 'analysis.started',
-    summary: `Inspecting workspace in ${run.config.mode.toUpperCase()} mode`,
-    status: 'running'
+  const taskKind =
+    run.config.mode === 'ask' ? 'ask' : run.config.mode === 'review' ? 'review' : 'plan'
+  const profile = resolveModelExecutionProfile({
+    agentId: run.config.agentId,
+    modelId: run.config.modelId,
+    taskKind
   })
-
   const hintTerms = params.text
     .split(/[^A-Za-z0-9_.-]+/)
     .filter((token) => token.length >= 3)
-    .slice(0, 10)
-  const snapshot = await gateway.inspectWorkspace(hintTerms)
-  const budget = new IdeContextBudgetTracker({ stackLabels: snapshot.architecture?.stackLabels })
-
-  for (const file of snapshot.keyFiles.slice(0, 5)) {
-    budget.recordText(`file:${file.relativePath}`, file.content)
+    .slice(0, 12)
+  const [snapshot, instructions] = await Promise.all([
+    gateway.inspectWorkspace(hintTerms, run.abortController.signal),
+    loadTrustedWorkspaceInstructions({
+      gateway,
+      maxRulesChars: profile.allocation.projectRulesTokens * 4,
+      signal: run.abortController.signal
+    })
+  ])
+  const budget = new IdeContextBudgetTracker({
+    budgetTokens: profile.allocation.totalContextTokens,
+    stackLabels: snapshot.architecture?.stackLabels
+  })
+  const { rankedSnippets, activeFileContent } = await gatherRankedTurnContext({
+    gateway,
+    snapshot,
+    userText: params.text,
+    activeFilePath: params.activeFilePath,
+    openFilePaths: params.openFilePaths,
+    attachments: params.attachments ?? [],
+    budget,
+    profile,
+    signal: run.abortController.signal
+  })
+  for (const snippet of rankedSnippets) {
     host.appendActivity(conv, {
       runId: run.runId,
       role: 'orchestrator',
       type: 'analysis.file_read',
-      summary: `Read ${file.relativePath}`,
-      relativePath: file.relativePath,
+      summary: `Read ${snippet.relativePath}`,
+      relativePath: snippet.relativePath,
       status: 'completed'
     })
   }
-
-  let activeFileContent: { relativePath: string; content: string } | null = null
-  if (params.activeFilePath) {
-    const normalizedActive = normalizeWorkspaceRelativePath(params.activeFilePath)
-    const readRes = await gateway.readTextFile(normalizedActive)
-    if (readRes.ok && readRes.content !== null) {
-      budget.recordText(`file:${normalizedActive}`, readRes.content)
-      activeFileContent = { relativePath: normalizedActive, content: readRes.content }
-    }
-  }
   conv.contextBudget = budget.summary()
-  host.appendActivity(conv, {
-    runId: run.runId,
-    role: 'orchestrator',
-    type: 'analysis.completed',
-    summary: `Inspected ${snapshot.fileList.length} files (${snapshot.keyFiles.length} loaded)`,
-    status: 'completed'
-  })
-  return { snapshot, budget, activeFileContent }
+  return { snapshot, budget, activeFileContent, rankedSnippets, instructions, profile }
 }
 
 export function buildPlanRecord(params: {
@@ -90,12 +99,12 @@ export function buildPlanRecord(params: {
   const steps: IdePlanStep[] = params.raw.steps.map((step, index) => ({
     id: randomUUID(),
     index,
-    title: step.title,
+    title: step.title.replace(/^\s*\d+[.)]\s*/, '').trim() || step.title.trim(),
     detail: step.detail,
     targetFiles: step.targetFiles,
     status: 'pending'
   }))
-  const affectedFiles: IdePlanFileAction[] = params.raw.affectedFiles
+  const affectedFiles = params.raw.affectedFiles
   const planHash = computeIdePlanHash({
     objective: params.raw.objective,
     affectedFiles,
@@ -130,8 +139,9 @@ export async function executeReadOnlyChatTurn(params: {
   run: ActiveRunControl
   gateway: IdeWorkspaceGateway
   budget: IdeContextBudgetTracker
+  profile?: ResolvedModelExecutionProfile
   mode: 'ask' | 'review'
-  buildPrompt: (observations: readonly string[]) => string
+  buildPrompt: (observations: readonly string[], allowTools: boolean) => string
   preserveAwaitingPlan?: boolean
 }): Promise<void> {
   const { host, conv, run, gateway, budget } = params
@@ -151,26 +161,51 @@ export async function executeReadOnlyChatTurn(params: {
   conv.messages.push(assistantMsg)
   host.setRunStatus(conv, run.runId, 'executing', `Generating ${params.mode} response...`)
 
+  let lastDeltaEmitAt = 0
+  let pendingDeltaTimer: ReturnType<typeof setTimeout> | null = null
+  const flushMessageDelta = (): void => {
+    if (pendingDeltaTimer !== null) {
+      clearTimeout(pendingDeltaTimer)
+      pendingDeltaTimer = null
+    }
+    lastDeltaEmitAt = Date.now()
+    host.emit({
+      type: 'message_delta',
+      conversationId: conv.id,
+      messageId: assistantMsg.id,
+      text: assistantMsg.text
+    })
+  }
+
   const res = await runToolAssistedInspectionLoop({
     host,
     conv,
     run,
     gateway,
     budget,
+    profile: params.profile,
     mode: params.mode,
     role: 'orchestrator',
     buildPrompt: params.buildPrompt,
+    onTurnReset: () => {
+      assistantMsg.text = ''
+      assistantMsg.updatedAt = Date.now()
+      flushMessageDelta()
+    },
     onProseDelta: (delta) => {
       assistantMsg.text += delta
       assistantMsg.updatedAt = Date.now()
-      host.emit({
-        type: 'message_delta',
-        conversationId: conv.id,
-        messageId: assistantMsg.id,
-        text: assistantMsg.text
-      })
+      const elapsed = Date.now() - lastDeltaEmitAt
+      if (elapsed >= 32) {
+        flushMessageDelta()
+      } else if (pendingDeltaTimer === null) {
+        pendingDeltaTimer = setTimeout(flushMessageDelta, 32 - elapsed)
+      }
     }
   })
+  if (pendingDeltaTimer !== null) {
+    flushMessageDelta()
+  }
 
   assistantMsg.streaming = false
   assistantMsg.updatedAt = Date.now()
@@ -181,13 +216,6 @@ export async function executeReadOnlyChatTurn(params: {
         assistantMsg.text = '_Generation stopped by user._'
       }
       host.emit({ type: 'message_complete', conversationId: conv.id, message: assistantMsg })
-      host.appendActivity(conv, {
-        runId: run.runId,
-        role: 'orchestrator',
-        type: 'run.canceled',
-        summary: 'Stopped by user',
-        status: 'warning'
-      })
       host.setRunStatus(conv, null, 'canceled')
       return
     }
@@ -205,15 +233,8 @@ export async function executeReadOnlyChatTurn(params: {
     return
   }
 
-  assistantMsg.text = res.text
+  assistantMsg.text = unwrapDirectAnswerJsonIfPresent(res.text)
   host.emit({ type: 'message_complete', conversationId: conv.id, message: assistantMsg })
-  host.appendActivity(conv, {
-    runId: run.runId,
-    role: 'orchestrator',
-    type: 'run.completed',
-    summary: `${params.mode === 'review' ? 'Code review' : 'Answer'} completed (read-only)`,
-    status: 'completed'
-  })
   const activePlan = params.preserveAwaitingPlan
     ? conv.plans.find((p) => p.id === conv.activePlanId)
     : undefined
@@ -231,6 +252,11 @@ export async function runReviewModeTurn(params: {
   gateway: IdeWorkspaceGateway
   budget: IdeContextBudgetTracker
   snapshot: WorkspaceInspectionSnapshot
+  attachments?: readonly IdeChatAttachment[]
+  activeFileContent?: { relativePath: string; content: string } | null
+  rankedSnippets?: readonly RankedContextSnippet[]
+  instructions?: WorkspaceInstructionsBundle | null
+  profile?: ResolvedModelExecutionProfile
   requestText: string
 }): Promise<void> {
   const { conv, gateway, requestText, snapshot } = params
@@ -258,13 +284,21 @@ export async function runReviewModeTurn(params: {
     run: params.run,
     gateway,
     budget: params.budget,
+    profile: params.profile,
     mode: 'review',
-    buildPrompt: () =>
+    buildPrompt: (observations, allowTools) =>
       buildReviewPrompt({
         request: requestText,
         diffSummary: combinedDiff,
         commandHistorySummary: cmdSummary,
-        snapshot
+        snapshot,
+        attachments: params.attachments,
+        activeFileContent: params.activeFileContent,
+        rankedSnippets: params.rankedSnippets,
+        instructions: params.instructions,
+        profile: params.profile,
+        toolObservations: observations,
+        allowTools
       })
   })
 }

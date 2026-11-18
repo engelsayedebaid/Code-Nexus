@@ -7,6 +7,8 @@ import {
   formatSmartAttachmentSize
 } from '../../../../../shared/smart-paste/smart-paste-config'
 
+const MAX_IMAGE_ATTACHMENT_BYTES = 5.5 * 1024 * 1024
+
 function makeAttachmentId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
@@ -27,6 +29,13 @@ export function useIdeSmartPaste({
       if (!conversationId || !file.type.startsWith('image/')) {
         return
       }
+      if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+        setPasteNotice(
+          `Image exceeds the ${formatSmartAttachmentSize(MAX_IMAGE_ATTACHMENT_BYTES)} attachment limit.`
+        )
+        return
+      }
+      setPasteNotice(null)
       const reader = new FileReader()
       reader.onload = () => {
         if (typeof reader.result === 'string') {
@@ -49,19 +58,19 @@ export function useIdeSmartPaste({
       if (!conversationId) {
         return
       }
-      const items = Array.from(event.clipboardData?.items ?? [])
-      let handledImage = false
-      for (const item of items) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
-          const file = item.getAsFile()
-          if (file) {
-            readImageFileAsAttachment(file)
-            handledImage = true
-          }
-        }
-      }
       const pastedText = event.clipboardData?.getData('text/plain') ?? ''
       if (!pastedText) {
+        const items = Array.from(event.clipboardData?.items ?? [])
+        let handledImage = false
+        for (const item of items) {
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const file = item.getAsFile()
+            if (file) {
+              readImageFileAsAttachment(file)
+              handledImage = true
+            }
+          }
+        }
         if (handledImage) {
           event.preventDefault()
         }
@@ -125,6 +134,7 @@ export function useIdeSmartPaste({
     clearPasteNotice: () => setPasteNotice(null),
     readImageFileAsAttachment,
     handlePaste,
-    getFallbackPreviewText
+    getFallbackPreviewText,
+    setPasteNotice
   }
 }

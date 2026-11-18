@@ -277,7 +277,7 @@ export async function ensureLegacyChatConversationsImported(): Promise<void> {
       for (const session of loadCouncilSessions()) {
         entries.push(councilSessionToTurnInput(session))
       }
-      for (const session of multiModelChatSessionStorage.loadAll()) {
+      for (const session of multiModelChatSessionStorage.load()) {
         entries.push(
           councilSessionToTurnInput({
             ...session,

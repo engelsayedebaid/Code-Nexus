@@ -72,10 +72,12 @@ export function useMonacoContentSyncBridge(params: {
   // Reconcile external prop changes before paint to avoid stale-text flashes; mount handles retained models separately.
   useLayoutEffect(() => {
     const ed = editorRef.current
+    const model = ed?.getModel()
     if (
       !ed ||
-      ed.getModel()?.uri.toString() !== modelKey ||
-      lastSyncedContentRef.current === content ||
+      !model ||
+      model.uri.toString() !== modelKey ||
+      (lastSyncedContentRef.current === content && model.getValue() === content) ||
       (fileId !== undefined && !mayPushTabTextIntoModel(fileId))
     ) {
       return

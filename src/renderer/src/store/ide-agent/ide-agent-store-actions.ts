@@ -5,146 +5,50 @@ import {
   resolveActiveIdeWorkspace
 } from '@/lib/ide-agent/ide-agent-live-sync'
 import type {
+  IdeChatAttachment,
   IdeCommandCategory,
   IdeConversation,
-  IdeConversationSummary,
   IdeExecutionMode,
   IdeLiveEditSpeed,
-  IdeProviderAgentOption,
-  IdeTodoItem
+  IdePermissionRequest
 } from '../../../../shared/ide-agent/ide-agent-types'
-import { type IdeAgentStoreData, updateSummaryFromConversation } from './ide-agent-event-reducer'
+import {
+  mergeIncomingConversation,
+  type IdeAgentStoreData,
+  updateSummaryFromConversation,
+  withOptimisticUserPrompt,
+  withoutOptimisticUserPrompt
+} from './ide-agent-event-reducer'
+import {
+  applyConversationUpdate,
+  createIdeConversationLifecycleActions,
+  initializeWorkspaceSession,
+  toIdeStoreError,
+  type IdeStoreSet
+} from './ide-agent-conversation-actions'
+import { reconcileIdeChangeDecisionEffects } from './ide-diff-review-store'
 
-type StoreSet = (
-  partial:
-    | Partial<IdeAgentStoreData>
-    | ((state: IdeAgentStoreData) => Partial<IdeAgentStoreData> | IdeAgentStoreData)
-) => void
+export { initializeWorkspaceSession }
 
-function applyConversationUpdate(set: StoreSet, conversation: IdeConversation): void {
-  set((curr) => ({
-    conversations: updateSummaryFromConversation(curr.conversations, conversation),
-    activeConversation:
-      curr.activeConversation?.id === conversation.id || curr.activeConversation === null
-        ? conversation
-        : curr.activeConversation,
-    lastError: null
-  }))
-}
-
-function getActiveEditorRelativePath(worktreeId?: string): string | undefined {
-  const state = useAppStore.getState()
-  const activeFile = state.openFiles.find((f) => f.id === state.activeFileId)
-  if (!activeFile || (worktreeId && activeFile.worktreeId !== worktreeId)) {
-    return undefined
+function getWorkspaceEditorTabContext(worktreeId?: string): {
+  activeFilePath?: string
+  openFilePaths: string[]
+} {
+  if (!worktreeId) {
+    return { openFilePaths: [] }
   }
-  return activeFile.relativePath
+  const state = useAppStore.getState()
+  const workspaceTabs = state.openFiles.filter((f) => f.worktreeId === worktreeId && f.relativePath)
+  const activeFile = workspaceTabs.find((f) => f.id === state.activeFileId)
+  return {
+    ...(activeFile?.relativePath ? { activeFilePath: activeFile.relativePath } : {}),
+    openFilePaths: workspaceTabs.map((f) => f.relativePath).slice(0, 24)
+  }
 }
 
-export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentStoreData) {
+export function createIdeAgentStoreActions(set: IdeStoreSet, get: () => IdeAgentStoreData) {
   return {
-    refreshProviders: async (worktreeSelector?: string) => {
-      set({ providersLoading: true })
-      try {
-        const { agents } = await callRuntimeRpc<{ agents: IdeProviderAgentOption[] }>(
-          { kind: 'local' },
-          'ideAgent.listProviders',
-          worktreeSelector ? { worktreeSelector } : {}
-        )
-        set({ providers: agents, providersLoading: false })
-      } catch (error) {
-        set({
-          providersLoading: false,
-          lastError: error instanceof Error ? error.message : String(error)
-        })
-      }
-    },
-
-    selectConversation: async (conversationId: string) => {
-      try {
-        const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation | null }>(
-          { kind: 'local' },
-          'ideAgent.getConversation',
-          { conversationId }
-        )
-        if (conversation) {
-          useAppStore.getState().setIdeFollowAgent(conversation.followAgent)
-          set({ activeConversation: conversation, lastError: null })
-        }
-      } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
-      }
-    },
-
-    createNewConversation: async (params: {
-      workspaceKey: string
-      workspacePath: string
-      mode?: IdeExecutionMode
-    }) => {
-      const active = get().activeConversation
-      const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation }>(
-        { kind: 'local' },
-        'ideAgent.createConversation',
-        {
-          workspaceKey: params.workspaceKey,
-          workspacePath: params.workspacePath,
-          mode: params.mode ?? active?.mode ?? 'agent',
-          ...(active?.agentId ? { agentId: active.agentId } : {}),
-          ...(active?.modelId ? { modelId: active.modelId } : {}),
-          multiAgentEnabled: active?.multiAgentEnabled ?? false,
-          followAgent: active?.followAgent ?? true
-        }
-      )
-      set((curr) => ({
-        conversations: updateSummaryFromConversation(curr.conversations, conversation),
-        activeConversation: conversation,
-        lastError: null
-      }))
-      return conversation
-    },
-
-    deleteConversation: async (conversationId: string) => {
-      await callRuntimeRpc({ kind: 'local' }, 'ideAgent.deleteConversation', { conversationId })
-      const remaining = get().conversations.filter((c) => c.id !== conversationId)
-      set({ conversations: remaining })
-      if (get().activeConversation?.id === conversationId) {
-        if (remaining[0]) {
-          const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation | null }>(
-            { kind: 'local' },
-            'ideAgent.getConversation',
-            { conversationId: remaining[0].id }
-          )
-          set({ activeConversation: conversation })
-        } else {
-          set({ activeConversation: null })
-        }
-      }
-    },
-
-    updateSettings: async (params: {
-      conversationId: string
-      mode?: IdeExecutionMode
-      agentId?: string
-      modelId?: string
-      multiAgentEnabled?: boolean
-      followAgent?: boolean
-      liveEditSpeed?: IdeLiveEditSpeed
-      title?: string
-    }) => {
-      if (params.followAgent !== undefined) {
-        useAppStore.getState().setIdeFollowAgent(params.followAgent)
-      }
-      const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation }>(
-        { kind: 'local' },
-        'ideAgent.updateConversationSettings',
-        params
-      )
-      set((curr) => ({
-        conversations: updateSummaryFromConversation(curr.conversations, conversation),
-        activeConversation:
-          curr.activeConversation?.id === conversation.id ? conversation : curr.activeConversation
-      }))
-    },
+    ...createIdeConversationLifecycleActions(set, get),
 
     sendPrompt: async (params: {
       conversationId: string
@@ -156,49 +60,116 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
       multiAgentEnabled?: boolean
       followAgent?: boolean
       liveEditSpeed?: IdeLiveEditSpeed
+      fromQueue?: { attachments: IdeChatAttachment[] }
     }) => {
-      // The composer can hold a stale conversation snapshot; always send the latest committed config.
       const latest = get().activeConversation
       const pinned = latest?.id === params.conversationId ? latest : null
-      const effective = pinned
-        ? {
-            ...params,
-            mode: pinned.mode,
-            agentId: pinned.agentId,
-            modelId: pinned.modelId,
-            multiAgentEnabled: pinned.multiAgentEnabled,
-            followAgent: pinned.followAgent,
-            liveEditSpeed: pinned.liveEditSpeed
-          }
-        : params
+      const effective =
+        pinned && !params.fromQueue
+          ? {
+              ...params,
+              mode: pinned.mode,
+              agentId: pinned.agentId,
+              modelId: pinned.modelId,
+              multiAgentEnabled: pinned.multiAgentEnabled,
+              followAgent: pinned.followAgent,
+              liveEditSpeed: pinned.liveEditSpeed
+            }
+          : params
       const workspace = resolveActiveIdeWorkspace()
-      const attachments = get().attachmentsByConversation[params.conversationId] ?? []
-      const activeRelPath = workspace
-        ? getActiveEditorRelativePath(workspace.worktreeId)
-        : undefined
+      const prevDraft = get().draftsByConversation[params.conversationId] ?? ''
+      const attachments =
+        params.fromQueue?.attachments ??
+        get().attachmentsByConversation[params.conversationId] ??
+        []
+      const editorTabs = getWorkspaceEditorTabContext(workspace?.worktreeId)
+      const now = Date.now()
+      const optimisticId = `optimistic-user-${now}`
+      set((curr) => ({
+        ...(params.fromQueue
+          ? {}
+          : {
+              draftsByConversation: { ...curr.draftsByConversation, [params.conversationId]: '' },
+              attachmentsByConversation: {
+                ...curr.attachmentsByConversation,
+                [params.conversationId]: []
+              }
+            }),
+        activeConversation: withOptimisticUserPrompt(curr.activeConversation, {
+          conversationId: params.conversationId,
+          optimisticId,
+          now,
+          text: params.text,
+          mode: effective.mode,
+          agentId: effective.agentId,
+          modelId: effective.modelId,
+          attachments
+        }),
+        lastError: null
+      }))
       try {
+        const { fromQueue: _ignoredQueueMeta, ...rpcEffective } = effective
         const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation }>(
           { kind: 'local' },
           'ideAgent.sendPrompt',
           {
-            ...effective,
+            ...rpcEffective,
             ...(attachments.length > 0 ? { attachments } : {}),
-            ...(activeRelPath ? { activeFilePath: activeRelPath } : {}),
-            dirtyRelativePaths: workspace ? collectDirtyRelativePaths(workspace.worktreeId) : []
+            ...(editorTabs.activeFilePath ? { activeFilePath: editorTabs.activeFilePath } : {}),
+            ...(editorTabs.openFilePaths.length > 0
+              ? { openFilePaths: editorTabs.openFilePaths }
+              : {}),
+            dirtyRelativePaths: collectDirtyRelativePaths(workspace?.worktreeId)
           }
         )
-        set((curr) => ({
-          conversations: updateSummaryFromConversation(curr.conversations, conversation),
-          activeConversation: conversation,
-          draftsByConversation: { ...curr.draftsByConversation, [params.conversationId]: '' },
-          attachmentsByConversation: {
-            ...curr.attachmentsByConversation,
-            [params.conversationId]: []
-          },
-          lastError: null
-        }))
+        set((curr) => {
+          if (curr.workspaceKey && curr.workspaceKey !== conversation.workspaceKey) {
+            return curr
+          }
+          const currentActive = curr.activeConversation
+          const hasOnlyOptimisticDiff =
+            currentActive?.id === conversation.id &&
+            currentActive.messages.some((m) => m.id === optimisticId) &&
+            !currentActive.messages.some((m) => m.streaming)
+          const keepNewerStream =
+            !hasOnlyOptimisticDiff &&
+            currentActive?.id === conversation.id &&
+            (currentActive.updatedAt > conversation.updatedAt ||
+              currentActive.messages.some((m) => m.streaming))
+          return {
+            conversations: updateSummaryFromConversation(curr.conversations, conversation),
+            activeConversation: keepNewerStream
+              ? mergeIncomingConversation(currentActive, conversation)
+              : currentActive?.id === conversation.id || currentActive === null
+                ? conversation
+                : currentActive
+          }
+        })
       } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
+        set((curr) => ({
+          ...(params.fromQueue
+            ? {}
+            : {
+                draftsByConversation: {
+                  ...curr.draftsByConversation,
+                  [params.conversationId]:
+                    curr.draftsByConversation[params.conversationId] || prevDraft
+                },
+                attachmentsByConversation: {
+                  ...curr.attachmentsByConversation,
+                  [params.conversationId]:
+                    (curr.attachmentsByConversation[params.conversationId]?.length ?? 0) > 0
+                      ? curr.attachmentsByConversation[params.conversationId]
+                      : attachments
+                }
+              }),
+          activeConversation: withoutOptimisticUserPrompt(
+            curr.activeConversation,
+            params.conversationId,
+            optimisticId
+          ),
+          lastError: toIdeStoreError(error)
+        }))
       }
     },
 
@@ -209,7 +180,7 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
       revisionNote?: string
       agentId?: string
       modelId?: string
-    }) => {
+    }): Promise<boolean> => {
       const workspace = resolveActiveIdeWorkspace()
       try {
         const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation }>(
@@ -222,8 +193,10 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
           }
         )
         applyConversationUpdate(set, conversation)
+        return true
       } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
+        set({ lastError: toIdeStoreError(error) })
+        return false
       }
     },
 
@@ -241,13 +214,13 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
         )
         applyConversationUpdate(set, conversation)
       } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
+        set({ lastError: toIdeStoreError(error) })
       }
     },
 
     controlRun: async (params: {
       conversationId: string
-      runId: string
+      runId?: string
       action: 'pause' | 'resume' | 'stop' | 'retry'
     }) => {
       const workspace = resolveActiveIdeWorkspace()
@@ -256,14 +229,16 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
           { kind: 'local' },
           'ideAgent.runControl',
           {
-            ...params,
+            conversationId: params.conversationId,
+            ...(params.runId ? { runId: params.runId } : {}),
+            action: params.action,
             ...(workspace ? { worktreeSelector: workspace.worktreeSelector } : {}),
             dirtyRelativePaths: collectDirtyRelativePaths(workspace?.worktreeId)
           }
         )
         applyConversationUpdate(set, conversation)
       } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
+        set({ lastError: toIdeStoreError(error) })
       }
     },
 
@@ -272,8 +247,9 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
       action: 'accept' | 'reject' | 'restore_checkpoint'
       changeId?: string
       checkpointId?: string
-    }) => {
+    }): Promise<boolean> => {
       const workspace = resolveActiveIdeWorkspace()
+      const prevChanges = get().activeConversation?.fileChanges ?? []
       try {
         const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation }>(
           { kind: 'local' },
@@ -285,8 +261,11 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
           }
         )
         applyConversationUpdate(set, conversation)
+        reconcileIdeChangeDecisionEffects(params.action, prevChanges, conversation)
+        return true
       } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
+        set({ lastError: toIdeStoreError(error) })
+        return false
       }
     },
 
@@ -296,78 +275,18 @@ export function createIdeAgentStoreActions(set: StoreSet, get: () => IdeAgentSto
       command: string
       category?: IdeCommandCategory
       permissionApproved?: boolean
-    }) => {
+    }): Promise<{ ok: boolean; needsPermission?: IdePermissionRequest }> => {
       try {
-        const { conversation } = await callRuntimeRpc<{ conversation: IdeConversation }>(
-          { kind: 'local' },
-          'ideAgent.runCommand',
-          params
-        )
-        applyConversationUpdate(set, conversation)
+        const res = await callRuntimeRpc<{
+          conversation: IdeConversation
+          needsPermission?: IdePermissionRequest
+        }>({ kind: 'local' }, 'ideAgent.runCommand', params)
+        applyConversationUpdate(set, res.conversation)
+        return { ok: true, needsPermission: res.needsPermission }
       } catch (error) {
-        set({ lastError: error instanceof Error ? error.message : String(error) })
+        set({ lastError: toIdeStoreError(error) })
+        return { ok: false }
       }
-    },
-
-    loadTodos: async (workspaceKey: string) => {
-      const { items } = await callRuntimeRpc<{ items: IdeTodoItem[] }>(
-        { kind: 'local' },
-        'ideAgent.todosList',
-        { workspaceKey }
-      )
-      set((curr) => ({ todosByWorkspace: { ...curr.todosByWorkspace, [workspaceKey]: items } }))
-    },
-
-    saveTodos: async (workspaceKey: string, items: IdeTodoItem[]) => {
-      set((curr) => ({ todosByWorkspace: { ...curr.todosByWorkspace, [workspaceKey]: items } }))
-      const res = await callRuntimeRpc<{ items: IdeTodoItem[] }>(
-        { kind: 'local' },
-        'ideAgent.todosSave',
-        { workspaceKey, items }
-      )
-      set((curr) => ({ todosByWorkspace: { ...curr.todosByWorkspace, [workspaceKey]: res.items } }))
     }
   }
-}
-
-export async function initializeWorkspaceSession(
-  workspaceKey: string,
-  workspacePath: string,
-  set: StoreSet
-): Promise<void> {
-  const [{ conversations }, { items }] = await Promise.all([
-    callRuntimeRpc<{ conversations: IdeConversationSummary[] }>(
-      { kind: 'local' },
-      'ideAgent.listConversations',
-      { workspaceKey }
-    ),
-    callRuntimeRpc<{ items: IdeTodoItem[] }>({ kind: 'local' }, 'ideAgent.todosList', {
-      workspaceKey
-    })
-  ])
-  set((curr) => ({
-    conversations,
-    todosByWorkspace: { ...curr.todosByWorkspace, [workspaceKey]: items }
-  }))
-  if (conversations.length > 0) {
-    const res = await callRuntimeRpc<{ conversation: IdeConversation | null }>(
-      { kind: 'local' },
-      'ideAgent.getConversation',
-      { conversationId: conversations[0].id }
-    )
-    if (res.conversation) {
-      useAppStore.getState().setIdeFollowAgent(res.conversation.followAgent)
-      set({ activeConversation: res.conversation })
-      return
-    }
-  }
-  const created = await callRuntimeRpc<{ conversation: IdeConversation }>(
-    { kind: 'local' },
-    'ideAgent.createConversation',
-    { workspaceKey, workspacePath, mode: 'agent' }
-  )
-  set((curr) => ({
-    conversations: updateSummaryFromConversation(curr.conversations, created.conversation),
-    activeConversation: created.conversation
-  }))
 }

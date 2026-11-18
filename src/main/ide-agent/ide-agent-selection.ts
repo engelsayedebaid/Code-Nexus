@@ -24,7 +24,8 @@ export function isExecutableIdeAgent(agentId: string | undefined): boolean {
 export function resolveIdeExecutionSelection(
   knownProviderModels: Map<string, Set<string>>,
   agentId: string,
-  modelId?: string
+  modelId?: string,
+  options?: { allowModelFallback?: boolean }
 ): { agentId: string; modelId: string } {
   if (!isTuiAgent(agentId)) {
     throw new Error(`Provider "${agentId}" does not support IDE chat execution.`)
@@ -35,6 +36,9 @@ export function resolveIdeExecutionSelection(
   }
   const resolvedModelId = modelId?.trim() || spec.defaultModelId
   if (spec.modelSource === 'static' && !getCommitMessageModel(agentId, resolvedModelId)) {
+    if (options?.allowModelFallback) {
+      return { agentId, modelId: spec.defaultModelId }
+    }
     throw new Error(`Model "${resolvedModelId}" is not available for ${spec.label}.`)
   }
   const known = knownProviderModels.get(agentId)
@@ -44,6 +48,9 @@ export function resolveIdeExecutionSelection(
     resolvedModelId !== spec.defaultModelId &&
     !known.has(resolvedModelId)
   ) {
+    if (options?.allowModelFallback) {
+      return { agentId, modelId: spec.defaultModelId }
+    }
     throw new Error(
       `Model "${resolvedModelId}" is not available for ${spec.label}. Refresh AI models or choose another.`
     )
@@ -73,14 +80,15 @@ export function buildNewIdeConversation(params: {
   const selection = resolveIdeExecutionSelection(
     params.knownProviderModels,
     agentId,
-    agentId === requested ? params.modelId : undefined
+    agentId === requested ? params.modelId : undefined,
+    { allowModelFallback: true }
   )
   const now = Date.now()
   return {
     id: randomUUID(),
     workspaceKey: params.workspaceKey,
     workspacePath: params.workspacePath,
-    title: params.title?.trim() || 'New IDE Chat',
+    title: params.title?.trim() || 'New Chat',
     mode: params.mode ?? 'agent',
     agentId: selection.agentId,
     modelId: selection.modelId,
@@ -199,11 +207,33 @@ export function recordKnownProviderModels(
   providers: readonly IdeProviderAgentOption[]
 ): void {
   for (const provider of providers) {
+    if (!provider.available || provider.models.length === 0) {
+      continue
+    }
     knownProviderModels.set(
       provider.id,
       new Set([provider.defaultModelId, ...provider.models.map((m) => m.id)])
     )
   }
+}
+
+export function abortAndRemoveRunControl(
+  activeRuns: Map<string, ActiveRunControl>,
+  conversationId: string
+): void {
+  const active = activeRuns.get(conversationId)
+  if (!active) {
+    return
+  }
+  active.abortController.abort()
+  for (const resolve of active.resumeResolvers.splice(0)) {
+    resolve()
+  }
+  for (const [, resolvePerm] of active.permissionWaiters) {
+    resolvePerm(false)
+  }
+  active.permissionWaiters.clear()
+  activeRuns.delete(conversationId)
 }
 
 export function pushBoundedActivityEvent(

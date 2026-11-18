@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useAppStore } from '@/store/index'
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from '@/lib/workspace/ownership/worktree-runtime-owner'
 import { getWorkspaceFileRevealOwner } from '@/lib/files/os-open/reveal-in-file-manager'
@@ -75,6 +75,8 @@ function FileExplorerFiles(): React.JSX.Element {
   const openFiles = useAppStore((s) => s.openFiles)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const appMode = useAppStore((s) => s.appMode)
+  const isIdeMode = appMode === 'ide'
+  const [ideFilterOpen, setIdeFilterOpen] = useState(false)
   const showDotfiles = useAppStore((s) =>
     activeWorktreeId ? (s.showDotfilesByWorktree[activeWorktreeId] ?? true) : true
   )
@@ -249,28 +251,40 @@ function FileExplorerFiles(): React.JSX.Element {
         }
         className="flex min-h-0 flex-1 flex-col"
       >
-        <FileExplorerToolbar
-          repoName={repoName}
-          worktreePath={worktreePath}
-          {...getRouteForLocalPathOpenOwner(openInOwner)}
-          workspaceId={activeWorktreeId}
-          refresh={manualRefresh}
-          canRefresh={isFilesViewActive}
-          canCollapseAll={canCollapseAll}
-          onCollapseAll={handleCollapseAll}
-          canCreate={isFilesViewActive}
-          onCreateFile={() =>
-            inlineInputState.startNew('file', displayRootPath ?? worktreePath, displayDepth)
-          }
-          onCreateFolder={() =>
-            inlineInputState.startNew('folder', displayRootPath ?? worktreePath, displayDepth)
-          }
-          showGitIgnoredFilesToggle={activeRepoSupportsGit}
-          showGitIgnoredFiles={showGitIgnoredFiles}
-          onToggleGitIgnoredFiles={toggleGitIgnoredFiles}
-          showDotfiles={showDotfiles}
-          onToggleDotfiles={handleToggleDotfiles}
-        />
+        {(!isIdeMode || isFilesViewActive) && (
+          <FileExplorerToolbar
+            repoName={repoName}
+            worktreePath={worktreePath}
+            {...getRouteForLocalPathOpenOwner(openInOwner)}
+            workspaceId={activeWorktreeId}
+            refresh={manualRefresh}
+            canRefresh={isFilesViewActive}
+            canCollapseAll={canCollapseAll}
+            onCollapseAll={handleCollapseAll}
+            canCreate={isFilesViewActive}
+            onCreateFile={() =>
+              inlineInputState.startNew('file', displayRootPath ?? worktreePath, displayDepth)
+            }
+            onCreateFolder={() =>
+              inlineInputState.startNew('folder', displayRootPath ?? worktreePath, displayDepth)
+            }
+            showGitIgnoredFilesToggle={activeRepoSupportsGit}
+            showGitIgnoredFiles={showGitIgnoredFiles}
+            onToggleGitIgnoredFiles={toggleGitIgnoredFiles}
+            showDotfiles={showDotfiles}
+            onToggleDotfiles={handleToggleDotfiles}
+            ideMode={isIdeMode}
+            filterOpen={ideFilterOpen || hasNameFilter}
+            onToggleFilter={() => {
+              if (ideFilterOpen || hasNameFilter) {
+                handleClearNameFilter()
+                setIdeFilterOpen(false)
+              } else {
+                setIdeFilterOpen(true)
+              }
+            }}
+          />
+        )}
         {activeWorktree?.isSparse && (
           <FileExplorerScopeNotice
             rootSelect={
@@ -294,7 +308,12 @@ function FileExplorerFiles(): React.JSX.Element {
             sparse={!!activeWorktree?.isSparse}
           />
         )}
-        <FileExplorerQueryStrip view={explorerView} onSelectView={setRightSidebarExplorerView}>
+        <FileExplorerQueryStrip
+          view={explorerView}
+          onSelectView={setRightSidebarExplorerView}
+          ideMode={isIdeMode}
+          visibleInFilesView={ideFilterOpen || hasNameFilter}
+        >
           {/* Keep query rows mounted to preserve input selection when switching modes. */}
           <div className="relative min-h-8">
             <div hidden={explorerView !== 'files'}>
@@ -302,8 +321,10 @@ function FileExplorerFiles(): React.JSX.Element {
                 query={nameFilterQuery}
                 scopeLabel={rootOptions?.find((option) => option.value === rootChoice)?.label}
                 loading={nameFilterFiles.loading}
+                autoFocus={isIdeMode && ideFilterOpen}
                 onQueryChange={setNameFilterQuery}
                 onClear={handleClearNameFilter}
+                onClose={isIdeMode ? () => setIdeFilterOpen(false) : undefined}
               />
             </div>
             <div hidden={explorerView !== 'search'}>

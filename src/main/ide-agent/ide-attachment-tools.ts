@@ -112,6 +112,23 @@ export async function executeAttachmentReadTool(params: {
       activityType: 'analysis.file_read'
     }
   }
+  if (attachment.sensitiveWarning) {
+    const approvedSecret = conv.pendingPermissions.some(
+      (p) =>
+        p.status === 'approved' &&
+        p.kind === 'send_secret_context' &&
+        (!attachment.relativePath || p.targetPath === attachment.relativePath)
+    )
+    if (!approvedSecret) {
+      return {
+        tool: call.tool,
+        ok: false,
+        summary: `Blocked sensitive attachment: ${attachment.name}`,
+        output: `Attachment "${attachment.name}" contains sensitive content and user permission was not granted.`,
+        activityType: 'analysis.file_read'
+      }
+    }
+  }
 
   if (call.tool === 'search_attachment_content') {
     const query = typeof call.args.query === 'string' ? call.args.query : ''

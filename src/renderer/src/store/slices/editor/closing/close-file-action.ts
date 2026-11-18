@@ -219,6 +219,7 @@ export function createCloseFileAction(
               fileIdsToClose
             )
           const shouldDeactivateWorktree =
+            s.appMode !== 'ide' &&
             activeWorktreeId !== null &&
             !closesBackgroundFile &&
             remainingForWorktree.length === 0 &&

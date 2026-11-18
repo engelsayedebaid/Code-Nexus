@@ -1,8 +1,9 @@
-import type {
-  OpenVsxExtensionDetails,
-  OpenVsxExtensionSummary,
-  OpenVsxSearchOptions,
-  OpenVsxSearchResult
+import {
+  formatOpenVsxErrorMessage,
+  type OpenVsxExtensionDetails,
+  type OpenVsxExtensionSummary,
+  type OpenVsxSearchOptions,
+  type OpenVsxSearchResult
 } from '../../shared/openvsx/openvsx-types'
 import {
   asFiniteNumber,
@@ -23,19 +24,58 @@ const MAX_VSIX_BYTES = 64 * 1024 * 1024
 const MAX_README_BYTES = 512 * 1024
 const USER_AGENT = 'Orca-IDE-OpenVSX-Client/1.0'
 
-async function fetchJson<T>(url: string, timeoutMs = API_TIMEOUT_MS): Promise<T> {
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
+type FetchTransport = (url: string, init: RequestInit) => Promise<Response>
+let primaryFetchTransport: FetchTransport | null = null
+
+export function registerOpenVsxPrimaryFetch(transport: FetchTransport): void {
+  primaryFetchTransport = transport
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+async function openVsxFetch(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number
+): Promise<Response> {
+  let lastError: unknown
+  const transports: FetchTransport[] = primaryFetchTransport
+    ? [primaryFetchTransport, (t, init) => fetch(t, init)]
+    : [(t, init) => fetch(t, init), (t, init) => fetch(t, init)]
+
+  for (const transport of transports) {
+    try {
+      return await transport(url, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(timeoutMs)
+      })
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw new Error(formatOpenVsxErrorMessage(lastError))
+}
+
+async function fetchJsonObject(
+  url: string,
+  timeoutMs = API_TIMEOUT_MS
+): Promise<Record<string, unknown>> {
+  const response = await openVsxFetch(
+    url,
+    {
       Accept: 'application/json',
       'User-Agent': USER_AGENT
     },
-    signal: AbortSignal.timeout(timeoutMs)
-  })
+    timeoutMs
+  )
   if (!response.ok) {
     throw new Error(`Open VSX request failed (${response.status} ${response.statusText})`)
   }
-  return (await response.json()) as T
+  const parsed: unknown = await response.json()
+  return isPlainRecord(parsed) ? parsed : {}
 }
 
 async function readBoundedBytes(
@@ -79,14 +119,14 @@ async function fetchTextBounded(url: string, maxBytes: number): Promise<string |
   if (!safeUrl) {
     return undefined
   }
-  const response = await fetch(safeUrl, {
-    method: 'GET',
-    headers: {
+  const response = await openVsxFetch(
+    safeUrl,
+    {
       Accept: 'text/markdown, text/plain, */*',
       'User-Agent': USER_AGENT
     },
-    signal: AbortSignal.timeout(API_TIMEOUT_MS)
-  })
+    API_TIMEOUT_MS
+  )
   if (!response.ok || !response.body) {
     return undefined
   }
@@ -114,7 +154,7 @@ export async function searchOpenVsxExtensions(
   params.set('offset', String(offset))
   params.set('includeAllVersions', 'false')
 
-  const raw = await fetchJson<RawOpenVsxSearchResponse>(
+  const raw: RawOpenVsxSearchResponse = await fetchJsonObject(
     `${OPEN_VSX_API_BASE}/-/search?${params.toString()}`
   )
   if (typeof raw.error === 'string' && raw.error.length > 0) {
@@ -124,10 +164,10 @@ export async function searchOpenVsxExtensions(
   const rawList = Array.isArray(raw.extensions) ? raw.extensions : []
   const extensions: OpenVsxExtensionSummary[] = []
   for (const item of rawList) {
-    if (!item || typeof item !== 'object') {
+    if (!isPlainRecord(item)) {
       continue
     }
-    const parsed = toOpenVsxExtensionSummary(item as RawOpenVsxExtension)
+    const parsed = toOpenVsxExtensionSummary(item)
     if (parsed) {
       extensions.push(parsed)
     }
@@ -156,7 +196,7 @@ export async function getOpenVsxExtensionDetails(
       ? `${basePath}/${encodeURIComponent(version.trim())}`
       : basePath
 
-  const raw = await fetchJson<RawOpenVsxExtension>(url)
+  const raw: RawOpenVsxExtension = await fetchJsonObject(url)
   if (typeof raw.error === 'string' && raw.error.length > 0) {
     throw new Error(raw.error)
   }
@@ -187,14 +227,14 @@ export async function downloadOpenVsxVsix(downloadUrl: string): Promise<Uint8Arr
     throw new Error('Open VSX VSIX download URL must use HTTPS')
   }
 
-  const response = await fetch(safeUrl, {
-    method: 'GET',
-    headers: {
+  const response = await openVsxFetch(
+    safeUrl,
+    {
       Accept: 'application/octet-stream, application/zip, */*',
       'User-Agent': USER_AGENT
     },
-    signal: AbortSignal.timeout(VSIX_DOWNLOAD_TIMEOUT_MS)
-  })
+    VSIX_DOWNLOAD_TIMEOUT_MS
+  )
   if (!response.ok || !response.body) {
     throw new Error(`Failed to download VSIX (${response.status} ${response.statusText})`)
   }

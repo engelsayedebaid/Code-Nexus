@@ -1,5 +1,14 @@
 import React from 'react'
-import { Ellipsis, FilePlus, FolderPlus, ListCollapse, Loader2, RefreshCw } from 'lucide-react'
+import {
+  ChevronDown,
+  Ellipsis,
+  FilePlus,
+  FolderPlus,
+  ListCollapse,
+  ListFilter,
+  Loader2,
+  RefreshCw
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -37,6 +46,9 @@ type FileExplorerToolbarProps = {
   onToggleGitIgnoredFiles: () => void
   showDotfiles: boolean
   onToggleDotfiles: () => void
+  ideMode?: boolean
+  filterOpen?: boolean
+  onToggleFilter?: () => void
 }
 
 function formatOpenInAppLabel(appName: string): string {
@@ -67,17 +79,52 @@ export function FileExplorerToolbar({
   showGitIgnoredFiles,
   onToggleGitIgnoredFiles,
   showDotfiles,
-  onToggleDotfiles
+  onToggleDotfiles,
+  ideMode = false,
+  filterOpen = false,
+  onToggleFilter
 }: FileExplorerToolbarProps): React.JSX.Element {
   const t = useTranslate()
   return (
-    <div className="flex h-8 min-h-8 items-center gap-2 border-b border-border px-2">
+    <div
+      className={cn(
+        'group/explorer-bar flex h-8 min-h-8 items-center gap-0.5 border-b border-border/70 px-2',
+        !ideMode && 'gap-1.5 border-border'
+      )}
+    >
+      {ideMode ? (
+        <ChevronDown className="mr-1 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      ) : null}
       <span
-        className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+        className={cn(
+          'min-w-0 flex-1 truncate',
+          ideMode
+            ? 'text-2xs font-semibold uppercase tracking-wider text-foreground/90'
+            : 'text-xs font-medium text-foreground'
+        )}
         title={repoName}
       >
         {repoName}
       </span>
+      {ideMode && onToggleFilter ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant={filterOpen ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              aria-label={t('ide.filterFiles', 'Filter files')}
+              aria-pressed={filterOpen}
+              onClick={onToggleFilter}
+            >
+              <ListFilter className="size-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={4}>
+            {t('ide.filterFiles', 'Filter files')}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button

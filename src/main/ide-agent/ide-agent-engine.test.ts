@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type {
   IdeConversation,
@@ -71,11 +71,11 @@ class FakeGateway implements IdeWorkspaceGateway {
 
   async writeTextChunk(
     relativePath: string,
-    _content: string,
+    content: string,
     options: { mode: IdeExecutionMode }
   ): Promise<WorkspaceWriteResult> {
     this.writes.push({ path: relativePath, mode: options.mode })
-    return { ok: true, relativePath, sha256: 'sha', created: true }
+    return { ok: true, relativePath, sha256: 'sha', created: true, persistedContent: content }
   }
 
   async deleteWorkspaceFile(
@@ -124,26 +124,25 @@ async function waitForStatus(
   conversationId: string,
   statuses: string[]
 ): Promise<IdeConversation> {
-  const deadline = Date.now() + 5000
-  while (Date.now() < deadline) {
-    const conv = store.getConversation(conversationId)
-    if (conv && statuses.includes(conv.status)) {
+  return vi.waitFor(
+    () => {
+      const conv = store.getConversation(conversationId)
+      if (!conv || !statuses.includes(conv.status)) {
+        throw new Error(`Waiting for status ${statuses.join('/')} on ${conversationId}`)
+      }
       return conv
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  }
-  throw new Error(`Timed out waiting for status ${statuses.join('/')} on ${conversationId}`)
+    },
+    { timeout: 5000 }
+  )
 }
 
 async function waitForRequests(aiClient: FakeAiClient, count: number): Promise<void> {
-  const deadline = Date.now() + 5000
-  while (Date.now() < deadline) {
-    if (aiClient.requests.length >= count) {
-      return
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  }
-  throw new Error(`Timed out waiting for ${count} AI requests`)
+  await vi.waitFor(
+    () => {
+      expect(aiClient.requests.length).toBeGreaterThanOrEqual(count)
+    },
+    { timeout: 5000 }
+  )
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -299,7 +298,7 @@ describe('IdeAgentEngine execution configuration', () => {
     await engine.sendPrompt({
       conversationId: conv.id,
       worktreeSelector: WORKTREE_SELECTOR,
-      text: 'create src/foo.ts',
+      text: 'make a plan to create src/foo.ts',
       mode: 'agent'
     })
     const awaiting = await waitForStatus(store, conv.id, ['awaiting_approval', 'failed'])
@@ -388,7 +387,7 @@ describe('IdeAgentEngine execution configuration', () => {
     await engine.sendPrompt({
       conversationId: conv.id,
       worktreeSelector: WORKTREE_SELECTOR,
-      text: 'build portfolio html css',
+      text: 'اعمل خطة لبناء portfolio html css',
       mode: 'agent'
     })
     const awaiting = await waitForStatus(store, conv.id, ['awaiting_approval', 'failed'])
@@ -414,7 +413,7 @@ describe('IdeAgentEngine execution configuration', () => {
     expect(gateway.writes).toHaveLength(0)
   })
 
-  it('supports direct planner answer responses and auto-executes low-risk small edits only in agent mode', async () => {
+  it('supports direct answers and executes requested edits without a plan approval in agent mode', async () => {
     const { store, aiClient, gateway, engine } = createEngine()
     const conv = engine.createConversation({
       workspaceKey: 'wk',
@@ -443,7 +442,7 @@ describe('IdeAgentEngine execution configuration', () => {
     expect(answered.plans).toHaveLength(0)
     expect(answered.messages.at(-1)?.text).toBe('هذا المشروع يستخدم HTML وCSS فقط.')
 
-    // Small low-risk edit with requiresApproval: false executes directly in agent mode.
+    // Agent mode executes a multi-file edit directly even if the model asks for plan approval.
     let stepCall = 0
     aiClient.setResponder(() => {
       stepCall += 1
@@ -452,15 +451,22 @@ describe('IdeAgentEngine execution configuration', () => {
           ok: true,
           text: JSON.stringify({
             intro: 'Updating hero styling.',
-            objective: 'Update styles.css button color',
-            affectedFiles: [{ path: 'styles.css', action: 'create', summary: 'Add button style' }],
+            objective: 'Update the page and button styling',
+            affectedFiles: [
+              { path: 'styles.css', action: 'create', summary: 'Add button style' },
+              { path: 'index.html', action: 'create', summary: 'Add button markup' }
+            ],
             steps: [
-              { title: 'Update button CSS', detail: 'Set color', targetFiles: ['styles.css'] }
+              {
+                title: 'Update the button',
+                detail: 'Add markup and styling',
+                targetFiles: ['styles.css', 'index.html']
+              }
             ],
             risks: [],
             testsAndVerification: [],
-            estimatedComplexity: 'low',
-            requiresApproval: false
+            estimatedComplexity: 'medium',
+            requiresApproval: true
           })
         }
       }
@@ -469,7 +475,8 @@ describe('IdeAgentEngine execution configuration', () => {
         text: JSON.stringify({
           summary: 'Added primary button style',
           operations: [
-            { path: 'styles.css', action: 'create', content: '.btn { color: #fff; }\n' }
+            { path: 'styles.css', action: 'create', content: '.btn { color: #fff; }\n' },
+            { path: 'index.html', action: 'create', content: '<button class="btn">Go</button>\n' }
           ],
           verificationCommands: []
         })
@@ -484,7 +491,7 @@ describe('IdeAgentEngine execution configuration', () => {
     })
     const completed = await waitForStatus(store, conv.id, ['completed', 'failed'])
     expect(completed.status).toBe('completed')
-    expect(gateway.writes.map((w) => w.path)).toEqual(['styles.css'])
+    expect(gateway.writes.map((w) => w.path)).toEqual(['styles.css', 'index.html'])
 
     // Plan mode must still wait for approval even if requiresApproval is false.
     stepCall = 0
@@ -496,6 +503,6 @@ describe('IdeAgentEngine execution configuration', () => {
     })
     const planAwaiting = await waitForStatus(store, conv.id, ['awaiting_approval', 'failed'])
     expect(planAwaiting.status).toBe('awaiting_approval')
-    expect(gateway.writes).toHaveLength(1)
+    expect(gateway.writes).toHaveLength(2)
   })
 })

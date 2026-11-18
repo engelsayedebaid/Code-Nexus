@@ -8,7 +8,11 @@ import { selectWorktreesByRepo } from '@/store/workspaces/catalog/workspace-reco
 import { detectLanguage } from '../../../../shared/editor-language/editor-language-detect'
 import { getFolderWorkspaceWorktree } from '../../../../shared/folder-workspaces/folder-workspace-worktree'
 import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../../shared/execution-host'
-import type { IdeAgentStreamEvent } from '../../../../shared/ide-agent/ide-agent-types'
+import type {
+  IdeAgentStreamEvent,
+  IdeConversation,
+  IdeFileChangeRecord
+} from '../../../../shared/ide-agent/ide-agent-types'
 import { normalizeWorkspaceRelativePath } from '../../../../shared/ide-agent/ide-plan-policy'
 import {
   enqueueLiveCharacterCoding,
@@ -53,12 +57,15 @@ export function resolveIdeWorkspaceSnapshot(
   for (const fw of state.folderWorkspaces ?? []) {
     if (fw.id === activeId || `folder:${fw.id}` === activeId) {
       const wt = getFolderWorkspaceWorktree(fw)
+      const hostParsed = parseExecutionHostId(
+        state.activeWorkspaceExecutionHostId ?? LOCAL_EXECUTION_HOST_ID
+      )
       return {
         worktreeId: wt.id,
         workspaceKey: wt.id,
         workspacePath: wt.path,
         worktreeSelector: `id:${wt.id}`,
-        runtimeEnvironmentId: null
+        runtimeEnvironmentId: hostParsed?.kind === 'runtime' ? hostParsed.environmentId : null
       }
     }
   }
@@ -77,10 +84,13 @@ export function joinWorkspacePath(worktreePath: string, relativePath: string): s
   return `${trimmedRoot}${useBackslash ? '\\' : '/'}${normalizedRel}`
 }
 
-export function collectDirtyRelativePaths(worktreeId?: string): string[] {
+export function collectDirtyRelativePaths(worktreeId?: string | null): string[] {
+  if (!worktreeId) {
+    return []
+  }
   const state = useAppStore.getState()
   return state.openFiles
-    .filter((f) => f.isDirty && (!worktreeId || f.worktreeId === worktreeId) && f.relativePath)
+    .filter((f) => f.isDirty && f.worktreeId === worktreeId && f.relativePath)
     .map((f) => normalizeWorkspaceRelativePath(f.relativePath))
 }
 
@@ -170,9 +180,49 @@ function dispatchWorktreeFsEvent(
   })
 }
 
-export function syncIdeAgentEventToWorkspace(event: IdeAgentStreamEvent): void {
+export function syncRevertedIdeFilesToWorkspace(
+  revertedChanges: readonly Pick<IdeFileChangeRecord, 'relativePath' | 'existedBefore'>[]
+): void {
+  const workspace = resolveActiveIdeWorkspace()
+  if (!workspace || revertedChanges.length === 0) {
+    return
+  }
+  const state = useAppStore.getState()
+  for (const item of revertedChanges) {
+    const cleanRel = normalizeWorkspaceRelativePath(item.relativePath)
+    if (!item.existedBefore) {
+      const matchingTab = state.openFiles.find(
+        (f) =>
+          f.worktreeId === workspace.worktreeId &&
+          normalizeWorkspaceRelativePath(f.relativePath).toLowerCase() === cleanRel.toLowerCase()
+      )
+      if (matchingTab) {
+        state.closeFile(matchingTab.id)
+      }
+      dispatchWorktreeFsEvent('delete', cleanRel, workspace, false)
+    } else {
+      dispatchWorktreeFsEvent('update', cleanRel, workspace, false)
+    }
+  }
+}
+
+export function syncIdeAgentEventToWorkspace(
+  event: IdeAgentStreamEvent,
+  activeConversation?: IdeConversation | null
+): void {
+  if (event.type === 'conversation_updated') {
+    return
+  }
   const workspace = resolveActiveIdeWorkspace()
   const ui = useAppStore.getState()
+
+  if (
+    activeConversation &&
+    (event.conversationId !== activeConversation.id ||
+      (workspace && activeConversation.workspaceKey !== workspace.workspaceKey))
+  ) {
+    return
+  }
 
   if (!workspace) {
     if (
@@ -232,14 +282,6 @@ export function syncIdeAgentEventToWorkspace(event: IdeAgentStreamEvent): void {
       if (event.status === 'canceled') {
         stopAllLiveCharacterCoding({ cancelled: true })
         ui.setIdeActiveEditHighlight(null)
-      } else if (
-        event.status === 'completed' ||
-        event.status === 'failed' ||
-        event.status === 'idle'
-      ) {
-        setTimeout(() => {
-          ui.setIdeActiveEditHighlight(null)
-        }, 650)
       }
       break
 

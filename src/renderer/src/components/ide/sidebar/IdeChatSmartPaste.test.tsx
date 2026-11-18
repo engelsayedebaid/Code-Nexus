@@ -39,8 +39,8 @@ function createConversation(): IdeConversation {
     checkpoints: [],
     pendingPermissions: [],
     commandExecutions: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_000
   }
 }
 
@@ -223,8 +223,8 @@ describe('IDE Chat Smart Paste & Attachment UI', () => {
           role: 'user',
           mode: 'ask',
           text: 'Check this pasted snippet',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_000,
           attachments: [missingAtt]
         }}
         conversation={conv}

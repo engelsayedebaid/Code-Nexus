@@ -1,9 +1,30 @@
-import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
+import { spawnProcess } from '@orca/process-host'
+import {
+  forceTerminateProcessTree,
+  signalProcessTree
+} from '@orca/process-host/process-tree-termination'
+import { windowsSystem32Binary } from '@orca/process-host/windows-system-binary'
 import type { ExecutionHostId } from '../../shared/execution-host'
+import { resolveExecutableCommand } from '../../shared/node-cli-command-resolution'
 import { wslAwareSpawn } from '../git/command-runner/host-routing/wsl-aware-spawn'
 
 const MAX_COMMAND_OUTPUT_BYTES = 256 * 1024
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
+const SHELL_METACHAR_PATTERN = /[&|;<>`$\n\r()]/
+const WINDOWS_SHELL_BUILTINS = new Set([
+  'cd',
+  'dir',
+  'echo',
+  'set',
+  'type',
+  'copy',
+  'move',
+  'del',
+  'rmdir',
+  'mkdir',
+  'md'
+])
 
 export type IdeWorkspaceTarget = {
   worktreeId: string
@@ -24,6 +45,86 @@ export type WorkspaceCommandRunResult = {
 function appendTail(existing: string, next: string, maxChars = 24_000): string {
   const combined = existing + next
   return combined.length <= maxChars ? combined : combined.slice(combined.length - maxChars)
+}
+
+function parseSimpleCommandArgv(command: string): string[] | null {
+  const trimmed = command.trim()
+  if (!trimmed || SHELL_METACHAR_PATTERN.test(trimmed)) {
+    return null
+  }
+  const tokens: string[] = []
+  let current = ''
+  let quote: '"' | "'" | null = null
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed[i]
+    if (quote) {
+      if (ch === quote) {
+        quote = null
+      } else {
+        current += ch
+      }
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      continue
+    }
+    if (/\s/.test(ch)) {
+      if (current.length > 0) {
+        tokens.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += ch
+  }
+  if (quote !== null) {
+    return null
+  }
+  if (current.length > 0) {
+    tokens.push(current)
+  }
+  if (tokens.length === 0 || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
+    return null
+  }
+  return tokens
+}
+
+function spawnLocalWorkspaceCommand(cwd: string, command: string) {
+  const argv = parseSimpleCommandArgv(command)
+  if (argv) {
+    const headLower = argv[0].toLowerCase()
+    if (process.platform !== 'win32' || !WINDOWS_SHELL_BUILTINS.has(headLower)) {
+      const resolved = resolveExecutableCommand(argv[0], {
+        pathEnv: process.env.PATH ?? process.env.Path ?? null
+      })
+      if (resolved) {
+        return spawnProcess({
+          program: resolved,
+          args: argv.slice(1),
+          cwd,
+          detached: process.platform !== 'win32',
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+      }
+    }
+  }
+  if (process.platform === 'win32') {
+    return spawnProcess({
+      program: process.env.ComSpec || windowsSystem32Binary('cmd.exe'),
+      args: ['/d', '/s', '/c', `"${command}"`],
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsVerbatimArguments: true
+    })
+  }
+  return spawnProcess({
+    program: '/bin/sh',
+    args: ['-c', command],
+    cwd,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
 }
 
 export async function runWorkspaceShellCommand(
@@ -52,39 +153,19 @@ export async function runWorkspaceShellCommand(
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true
           })
-        : process.platform === 'win32'
-          ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], {
-              cwd: target.workspacePath,
-              stdio: ['ignore', 'pipe', 'pipe'],
-              windowsHide: true
-            })
-          : spawn('/bin/sh', ['-c', command], {
-              cwd: target.workspacePath,
-              stdio: ['ignore', 'pipe', 'pipe']
-            })
+        : spawnLocalWorkspaceCommand(target.workspacePath, command)
 
     let settled = false
     const killChildTree = (): void => {
-      if (!child.pid) {
-        return
-      }
-      if (process.platform === 'win32') {
-        try {
-          spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
-            windowsHide: true,
-            stdio: 'ignore'
-          })
-        } catch {
-          child.kill()
+      void signalProcessTree(child).then((ok) => {
+        if (!ok) {
+          void forceTerminateProcessTree(child)
         }
-        return
-      }
-      try {
-        child.kill('SIGTERM')
-      } catch {
-        // Process may already have exited.
-      }
+      })
     }
+
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
 
     const finish = (exitCode: number | null): void => {
       if (settled) {
@@ -122,8 +203,8 @@ export async function runWorkspaceShellCommand(
     }, timeoutMs)
 
     child.stdout?.on('data', (buf: Buffer) => {
-      const text = buf.toString('utf8')
-      if (bytes < MAX_COMMAND_OUTPUT_BYTES) {
+      const text = stdoutDecoder.write(buf)
+      if (bytes < MAX_COMMAND_OUTPUT_BYTES && text) {
         bytes += buf.byteLength
         stdout = appendTail(stdout, text)
         options.onOutput?.('stdout', text)
@@ -131,8 +212,8 @@ export async function runWorkspaceShellCommand(
     })
 
     child.stderr?.on('data', (buf: Buffer) => {
-      const text = buf.toString('utf8')
-      if (bytes < MAX_COMMAND_OUTPUT_BYTES) {
+      const text = stderrDecoder.write(buf)
+      if (bytes < MAX_COMMAND_OUTPUT_BYTES && text) {
         bytes += buf.byteLength
         stderr = appendTail(stderr, text)
         options.onOutput?.('stderr', text)

@@ -1,3 +1,7 @@
+import { preserveTextLineEndingsAndBom } from './ide-unified-diff'
+
+export { preserveTextLineEndingsAndBom }
+
 export type CharacterStreamFrame = {
   text: string
   revealedChars: number
@@ -12,6 +16,71 @@ export type CharacterStreamFrame = {
 export type SearchReplacePatch = {
   search: string
   replace: string
+  replaceAll?: boolean
+}
+
+function measureLeadingSpaces(line: string): number {
+  let count = 0
+  while (count < line.length && (line[count] === ' ' || line[count] === '\t')) {
+    count += 1
+  }
+  return count
+}
+
+function applyTrimmedUniqueBlockPatch(
+  source: string,
+  search: string,
+  replace: string,
+  lineEnding: '\r\n' | '\n'
+): { ok: true; content: string } | { ok: false; ambiguous: boolean } {
+  const sourceLines = source.split(/\r?\n/)
+  const searchLines = search.split(/\r?\n/)
+  if (searchLines.length === 0) {
+    return { ok: false, ambiguous: false }
+  }
+  const matches: number[] = []
+  for (let i = 0; i <= sourceLines.length - searchLines.length; i += 1) {
+    let allEqual = true
+    for (let j = 0; j < searchLines.length; j += 1) {
+      if (sourceLines[i + j].trim() !== searchLines[j].trim()) {
+        allEqual = false
+        break
+      }
+    }
+    if (allEqual) {
+      matches.push(i)
+    }
+  }
+  if (matches.length !== 1) {
+    return { ok: false, ambiguous: matches.length > 1 }
+  }
+  const matchIdx = matches[0]
+  const fileFirstNonEmpty = sourceLines
+    .slice(matchIdx, matchIdx + searchLines.length)
+    .find((l) => l.trim().length > 0)
+  const searchFirstNonEmpty = searchLines.find((l) => l.trim().length > 0)
+  const indentShift =
+    fileFirstNonEmpty && searchFirstNonEmpty && !fileFirstNonEmpty.startsWith('\t')
+      ? measureLeadingSpaces(fileFirstNonEmpty) - measureLeadingSpaces(searchFirstNonEmpty)
+      : 0
+
+  const replaceLines = replace.split(/\r?\n/).map((line) => {
+    if (!line.trim() || indentShift === 0 || line.startsWith('\t')) {
+      return line
+    }
+    if (indentShift > 0) {
+      return `${' '.repeat(indentShift)}${line}`
+    }
+    const removable = Math.min(-indentShift, measureLeadingSpaces(line))
+    return line.slice(removable)
+  })
+
+  const nextLines = [
+    ...sourceLines.slice(0, matchIdx),
+    ...replaceLines,
+    ...sourceLines.slice(matchIdx + searchLines.length)
+  ]
+  return { ok: true, content: nextLines.join(lineEnding) }
 }
 
 export function applySearchReplacePatches(
@@ -19,28 +88,62 @@ export function applySearchReplacePatches(
   patches: readonly SearchReplacePatch[]
 ): { ok: true; content: string } | { ok: false; reason: string } {
   let current = beforeContent
-  const useCrLf = current.includes('\r\n')
+  const lineEnding: '\r\n' | '\n' = current.includes('\r\n') ? '\r\n' : '\n'
   for (const patch of patches) {
     if (!patch.search) {
       return { ok: false, reason: 'Patch search block cannot be empty.' }
     }
-    const normalizedSearch = useCrLf
-      ? patch.search.replace(/\r?\n/g, '\r\n')
-      : patch.search.replace(/\r\n/g, '\n')
-    const normalizedReplace = useCrLf
-      ? patch.replace.replace(/\r?\n/g, '\r\n')
-      : patch.replace.replace(/\r\n/g, '\n')
-    const idx = current.indexOf(normalizedSearch)
-    if (idx === -1) {
+    const normalizedSearch =
+      lineEnding === '\r\n'
+        ? patch.search.replace(/\r?\n/g, '\r\n')
+        : patch.search.replaceAll('\r\n', '\n')
+    const normalizedReplace =
+      lineEnding === '\r\n'
+        ? patch.replace.replace(/\r?\n/g, '\r\n')
+        : patch.replace.replaceAll('\r\n', '\n')
+
+    const firstIdx = current.indexOf(normalizedSearch)
+    if (firstIdx !== -1) {
+      if (patch.replaceAll) {
+        current = current.replaceAll(normalizedSearch, normalizedReplace)
+        continue
+      }
+      const secondIdx = current.indexOf(normalizedSearch, firstIdx + normalizedSearch.length)
+      if (secondIdx !== -1) {
+        return {
+          ok: false,
+          reason: `Ambiguous patch search block matched multiple locations starting with "${patch.search.slice(0, 48).trim()}". Include surrounding context lines to make it unique.`
+        }
+      }
+      current =
+        current.slice(0, firstIdx) +
+        normalizedReplace +
+        current.slice(firstIdx + normalizedSearch.length)
+      continue
+    }
+
+    const trimmedAttempt = applyTrimmedUniqueBlockPatch(
+      current,
+      normalizedSearch,
+      normalizedReplace,
+      lineEnding
+    )
+    if (trimmedAttempt.ok) {
+      current = trimmedAttempt.content
+      continue
+    }
+    if (trimmedAttempt.ambiguous) {
       return {
         ok: false,
-        reason: `Could not locate target search block starting with "${patch.search.slice(0, 48).trim()}".`
+        reason: `Ambiguous patch search block matched multiple locations starting with "${patch.search.slice(0, 48).trim()}". Include surrounding context lines.`
       }
     }
-    current =
-      current.slice(0, idx) + normalizedReplace + current.slice(idx + normalizedSearch.length)
+    return {
+      ok: false,
+      reason: `Could not locate target search block starting with "${patch.search.slice(0, 48).trim()}". Read the latest file lines before retrying.`
+    }
   }
-  return { ok: true, content: current }
+  return { ok: true, content: preserveTextLineEndingsAndBom(beforeContent, current) }
 }
 
 /**

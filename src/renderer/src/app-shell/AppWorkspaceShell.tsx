@@ -14,6 +14,7 @@ import type { VirtualizedScrollAnchor } from '../hooks/useVirtualizedScrollAncho
 import { TitlebarLeftControls } from './TitlebarLeftControls'
 import { RightSidebarToggle, TitlebarMainStrip } from './TitlebarMainStrip'
 import { IdeDevelopmentSidebar } from '@/components/ide/IdeWorkspaceChrome'
+import { IdeWorkbenchBar } from '@/components/ide/IdeWorkbenchBar'
 import { hasCustomTitleBar } from './app-window-chrome'
 import type { AppChromeLayout } from './use-app-chrome-layout'
 import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel'
@@ -53,7 +54,17 @@ function WorktreeSidebar({
 }): React.JSX.Element {
   const t = useTranslate()
   if (layout.appMode === 'ide') {
-    return <IdeDevelopmentSidebar />
+    return (
+      <RecoverableRenderErrorBoundary
+        boundaryId="sidebar.ide"
+        surface="sidebar"
+        resetKey={layout.activeView}
+        title={t('ide.sidebarErrorTitle', 'The IDE sidebar hit an error.')}
+        description={t('ide.sidebarErrorDescription', 'Retry the sidebar or switch views.')}
+      >
+        <IdeDevelopmentSidebar />
+      </RecoverableRenderErrorBoundary>
+    )
   }
   return (
     <RecoverableRenderErrorBoundary
@@ -284,13 +295,16 @@ export function AppWorkspaceShell(props: {
                     </RecoverableRenderErrorBoundary>
                   </Suspense>
                 </div>
-                {floatingWorkspace.showToggleButton && !capturingPluginShot ? (
+                {floatingWorkspace.showToggleButton &&
+                layout.appMode !== 'ide' &&
+                !capturingPluginShot ? (
                   <MemoFloatingTerminalToggleButton
                     open={floatingWorkspace.open}
                     onToggle={toggleFloatingWorkspace}
                   />
                 ) : null}
               </div>
+              {layout.appMode === 'ide' ? <IdeWorkbenchBar /> : null}
             </div>
           </div>
         </div>

@@ -19,13 +19,24 @@ export function normalizeWorkspaceRelativePath(rawPath: string): string {
   return normalized.startsWith('/') ? normalized.slice(1) : normalized
 }
 
+const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
+
 export function isUnsafeRelativePath(rawPath: string): boolean {
+  if (rawPath.includes('\u0000')) {
+    return true
+  }
   const cleaned = rawPath.trim().replaceAll('\\', '/')
-  if (!cleaned || cleaned.startsWith('/') || /^[A-Za-z]:/.test(cleaned)) {
+  if (!cleaned || cleaned === '.' || cleaned.startsWith('/') || cleaned.includes(':')) {
     return true
   }
   const segments = cleaned.split('/')
-  return segments.some((segment) => segment === '..' || segment === '')
+  return segments.some(
+    (segment) =>
+      segment === '..' ||
+      segment === '.' ||
+      segment === '' ||
+      WINDOWS_RESERVED_SEGMENT.test(segment)
+  )
 }
 
 function stablePlanFingerprintInput(plan: {
@@ -78,7 +89,8 @@ export function computeIdePlanHash(plan: {
 
 export function isPlanApprovedForExecution(
   plan: IdeTaskPlan | null | undefined,
-  requestedFiles?: readonly string[]
+  requestedFiles?: readonly string[],
+  options?: { allowCompleted?: boolean }
 ): { ok: true } | { ok: false; reason: string; outOfScopePath?: string } {
   if (!plan) {
     return { ok: false, reason: 'No approved implementation plan exists for this task.' }
@@ -89,7 +101,11 @@ export function isPlanApprovedForExecution(
       reason: 'The implementation plan was rejected. Revise or create a new plan.'
     }
   }
-  if (plan.status !== 'approved' && plan.status !== 'executing') {
+  const allowedStatus =
+    plan.status === 'approved' ||
+    plan.status === 'executing' ||
+    (options?.allowCompleted === true && plan.status === 'completed')
+  if (!allowedStatus) {
     return {
       ok: false,
       reason: `Plan status is "${plan.status}". Explicit user approval is required before making edits.`
@@ -115,22 +131,23 @@ export function isPlanApprovedForExecution(
   if (requestedFiles && requestedFiles.length > 0) {
     const allowed = new Set<string>()
     for (const file of plan.affectedFiles) {
-      allowed.add(normalizeWorkspaceRelativePath(file.path))
+      allowed.add(normalizeWorkspaceRelativePath(file.path).toLowerCase())
       if (file.fromPath) {
-        allowed.add(normalizeWorkspaceRelativePath(file.fromPath))
+        allowed.add(normalizeWorkspaceRelativePath(file.fromPath).toLowerCase())
       }
     }
     for (const candidate of requestedFiles) {
       const normalized = normalizeWorkspaceRelativePath(candidate)
+      const normalizedLower = normalized.toLowerCase()
       // Creating or modifying a file under an explicitly approved folder action is within scope.
       const underApprovedFolder = plan.affectedFiles.some((file) => {
         if (file.action !== 'mkdir') {
           return false
         }
-        const folder = normalizeWorkspaceRelativePath(file.path).replace(/\/+$/, '')
-        return normalized === folder || normalized.startsWith(`${folder}/`)
+        const folder = normalizeWorkspaceRelativePath(file.path).replace(/\/+$/, '').toLowerCase()
+        return normalizedLower === folder || normalizedLower.startsWith(`${folder}/`)
       })
-      if (!allowed.has(normalized) && !underApprovedFolder) {
+      if (!allowed.has(normalizedLower) && !underApprovedFolder) {
         return {
           ok: false,
           reason: `File "${normalized}" is outside the approved plan scope.`,

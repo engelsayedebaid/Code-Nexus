@@ -1,6 +1,12 @@
 import { normalizeWorkspaceRelativePath } from '../../shared/ide-agent/ide-plan-policy'
 import type { IdePlanFileAction } from '../../shared/ide-agent/ide-agent-types'
 import type { SearchReplacePatch } from '../../shared/ide-agent/ide-patch-chunker'
+import {
+  extractJsonObjectFromAiOutput,
+  unwrapDirectAnswerJsonIfPresent
+} from './ide-agent-json-extract'
+
+export { extractJsonObjectFromAiOutput, unwrapDirectAnswerJsonIfPresent }
 
 export type RawPlannedTask = {
   intro?: string
@@ -27,6 +33,7 @@ export type RawStepExecutionOperation = {
   action: 'create' | 'modify' | 'delete' | 'patch' | 'mkdir' | 'rename' | 'delete_folder'
   content?: string
   patches?: SearchReplacePatch[]
+  unifiedDiff?: string
   rationale?: string
 }
 
@@ -40,32 +47,6 @@ export type RawStepExecutionResult = {
 export type RawAgentToolCall = {
   tool: string
   args: Record<string, unknown>
-}
-
-export function extractJsonObjectFromAiOutput(raw: string): Record<string, unknown> | null {
-  const fencedMatches = Array.from(raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi))
-  const candidates = [...fencedMatches.map((m) => m[1]?.trim() ?? ''), raw.trim()]
-
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue
-    }
-    const firstBrace = candidate.indexOf('{')
-    const lastBrace = candidate.lastIndexOf('}')
-    if (firstBrace === -1 || lastBrace <= firstBrace) {
-      continue
-    }
-    const slice = candidate.slice(firstBrace, lastBrace + 1)
-    try {
-      const parsed = JSON.parse(slice)
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>
-      }
-    } catch {
-      // Try next candidate.
-    }
-  }
-  return null
 }
 
 export function parseToolCallsFromAiOutput(raw: string): RawAgentToolCall[] | null {
@@ -242,14 +223,14 @@ function parseStepAction(raw: unknown): RawStepExecutionOperation['action'] {
 
 export function parseStepOperationsFromAiOutput(raw: string): RawStepExecutionResult | null {
   const parsed = extractJsonObjectFromAiOutput(raw)
-  if (!parsed) {
+  if (!parsed || Array.isArray(parsed.toolCalls) || !Array.isArray(parsed.operations)) {
     return null
   }
   const summary =
     typeof parsed.summary === 'string' && parsed.summary.trim()
       ? parsed.summary.trim()
       : 'Applied planned step changes'
-  const opsRaw = Array.isArray(parsed.operations) ? parsed.operations : []
+  const opsRaw = parsed.operations
   const operations: RawStepExecutionOperation[] = []
   for (const item of opsRaw) {
     if (!item || typeof item !== 'object') {
@@ -264,9 +245,19 @@ export function parseStepOperationsFromAiOutput(raw: string): RawStepExecutionRe
       ? record.patches
           .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === 'object'))
           .filter((p) => typeof p.search === 'string' && typeof p.replace === 'string')
-          .map((p) => ({ search: p.search as string, replace: p.replace as string }))
+          .map((p) => ({
+            search: p.search as string,
+            replace: p.replace as string,
+            ...(typeof p.replaceAll === 'boolean' ? { replaceAll: p.replaceAll } : {})
+          }))
       : undefined
-    if (action === 'patch' && (!patches || patches.length === 0)) {
+    const unifiedDiff =
+      typeof record.unifiedDiff === 'string' && record.unifiedDiff.trim()
+        ? record.unifiedDiff
+        : typeof record.diff === 'string' && record.diff.trim()
+          ? record.diff
+          : undefined
+    if (action === 'patch' && (!patches || patches.length === 0) && !unifiedDiff) {
       continue
     }
     if ((action === 'create' || action === 'modify') && typeof record.content !== 'string') {
@@ -283,8 +274,12 @@ export function parseStepOperationsFromAiOutput(raw: string): RawStepExecutionRe
       action,
       ...(typeof record.content === 'string' ? { content: record.content } : {}),
       ...(patches && patches.length > 0 ? { patches } : {}),
+      ...(unifiedDiff ? { unifiedDiff } : {}),
       ...(typeof record.rationale === 'string' ? { rationale: record.rationale.trim() } : {})
     })
+  }
+  if (opsRaw.length > 0 && operations.length === 0) {
+    return null
   }
   const verificationCommands = Array.isArray(parsed.verificationCommands)
     ? parsed.verificationCommands.filter(

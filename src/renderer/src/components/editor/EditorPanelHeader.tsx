@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ArrowDown, ArrowUp, Columns2, Eye, FileText, ListTree, Rows2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns2, FileText, ListTree, Rows2 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { useVisibleWorktreeDiffComments } from '../diff-comments/use-visible-worktree-diff-comments'
 import type { OpenFile } from '@/store/slices/editor/types/open-file'
@@ -24,8 +24,7 @@ import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import type { ArtifactWriteRequest } from '../../../../shared/artifacts/artifacts'
 import { ArtifactPublishButton } from '@/components/artifacts/ArtifactPublishButton'
 import { editorArtifactSourceKey } from './editor-artifact-upload'
-import { IdeRunFileButton } from '@/components/ide/IdeRunFileButton'
-import { IdeLiveEditingBadge } from '@/components/ide/IdeLiveEditingBadge'
+import { IdeEditorHeaderActions } from '@/components/ide/IdeEditorHeaderActions'
 
 const NO_CUSTOM_EDITOR_TITLES: Readonly<Record<CustomEditorToggleValue, string>> = {}
 
@@ -150,27 +149,11 @@ export function EditorPanelHeader({
         onCopyPath={onCopyPath}
         onOpenMarkdownPreview={onOpenMarkdownPreview}
       />
-      {canOpenPreview && (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-                onClick={onOpenPreview}
-                aria-label={t('auto.components.editor.EditorViewToggle.0d193dc03c', 'Preview')}
-              >
-                <Eye size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={4}>
-              {t('auto.components.editor.EditorViewToggle.0d193dc03c', 'Preview')}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
-      <IdeLiveEditingBadge relativePath={activeFile.relativePath} />
-      <IdeRunFileButton file={activeFile} />
+      <IdeEditorHeaderActions
+        activeFile={activeFile}
+        canOpenPreview={canOpenPreview}
+        onOpenPreview={onOpenPreview}
+      />
       {isSingleDiff && (
         <TooltipProvider>
           <Tooltip>

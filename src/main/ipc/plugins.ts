@@ -84,7 +84,7 @@ const logsArgsSchema = z.object({ pluginKey: z.string().min(1) })
 
 // Preserve import compatibility; runtime RPC uses the Electron-free client-list module.
 import { listPluginsForClients, readInstalledPluginManifest } from '../plugins/plugin-client-list'
-import { getOpenVsxService } from '../openvsx/open-vsx-runtime'
+import { ensureOpenVsxService } from '../openvsx/open-vsx-runtime'
 
 export function registerPluginHandlers(
   store: Store,
@@ -100,34 +100,46 @@ export function registerPluginHandlers(
   const handleContentPacks = (channel: string, read: (arg: unknown) => unknown): void => {
     ipcMain.handle(channel, async (_event, arg: unknown) => {
       await pluginService.whenReady()
-      return read(arg)
+      return await read(arg)
     })
   }
   const { contentPacks } = pluginService
   handleContentPacks('plugins:listLanguagePacks', () => contentPacks.languagePacks.list())
-  handleContentPacks('plugins:listThemes', () => [
-    ...contentPacks.themes.list(),
-    ...(getOpenVsxService()?.listThemes() ?? [])
-  ])
+  handleContentPacks('plugins:listThemes', async () => {
+    const openVsx = await ensureOpenVsxService()
+    return [...contentPacks.themes.list(), ...openVsx.listThemes()]
+  })
   handleContentPacks('plugins:listTerminalThemes', () => contentPacks.terminalThemes.list())
-  handleContentPacks('plugins:listIconThemes', () => [
-    ...contentPacks.iconThemes.list(),
-    ...(getOpenVsxService()?.listIconThemes() ?? [])
-  ])
-  handleContentPacks('plugins:loadIconTheme', (id) =>
-    typeof id === 'string'
-      ? (contentPacks.iconThemes.load(id) ?? getOpenVsxService()?.loadIconTheme(id) ?? null)
-      : null
-  )
-  handleContentPacks('plugins:listSyntaxes', () => [
-    ...contentPacks.syntaxes.list(),
-    ...(getOpenVsxService()?.listSyntaxes() ?? [])
-  ])
-  handleContentPacks('plugins:loadSyntax', (id) =>
-    typeof id === 'string'
-      ? (contentPacks.syntaxes.load(id) ?? getOpenVsxService()?.loadSyntax(id) ?? null)
-      : null
-  )
+  handleContentPacks('plugins:listIconThemes', async () => {
+    const openVsx = await ensureOpenVsxService()
+    return [...contentPacks.iconThemes.list(), ...openVsx.listIconThemes()]
+  })
+  handleContentPacks('plugins:loadIconTheme', async (id) => {
+    if (typeof id !== 'string') {
+      return null
+    }
+    const nativeTheme = contentPacks.iconThemes.load(id)
+    if (nativeTheme) {
+      return nativeTheme
+    }
+    const openVsx = await ensureOpenVsxService()
+    return openVsx.loadIconTheme(id) ?? null
+  })
+  handleContentPacks('plugins:listSyntaxes', async () => {
+    const openVsx = await ensureOpenVsxService()
+    return [...contentPacks.syntaxes.list(), ...openVsx.listSyntaxes()]
+  })
+  handleContentPacks('plugins:loadSyntax', async (id) => {
+    if (typeof id !== 'string') {
+      return null
+    }
+    const nativeSyntax = contentPacks.syntaxes.load(id)
+    if (nativeSyntax) {
+      return nativeSyntax
+    }
+    const openVsx = await ensureOpenVsxService()
+    return openVsx.loadSyntax(id) ?? null
+  })
   ipcMain.handle('plugins:consent', async (_event, args: unknown) => {
     await pluginService.whenReady()
     const parsed = parsePluginConsentArgs(args)

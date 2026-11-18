@@ -1,9 +1,11 @@
 export {
   applySearchReplacePatches,
   computeCharacterStreamSteps,
+  preserveTextLineEndingsAndBom,
   type CharacterStreamFrame,
   type SearchReplacePatch
 } from './ide-character-stream'
+export { applyUnifiedDiffPatch, type UnifiedDiffApplyResult } from './ide-unified-diff'
 
 export type ProgressiveEditChunk = {
   chunkIndex: number
@@ -162,35 +164,91 @@ function splitLineRanges(lines: readonly string[], maxLines: number): [number, n
 
 type LineHunk = { origStart: number; origEnd: number; nextStart: number; nextEnd: number }
 
+function findUnchangedAnchor(
+  prevLines: readonly string[],
+  origFrom: number,
+  origTo: number,
+  nextLines: readonly string[],
+  nextFrom: number,
+  nextTo: number,
+  minAnchorLines = 4
+): { origIdx: number; nextIdx: number; len: number } | null {
+  if (origTo - origFrom < minAnchorLines * 2 || nextTo - nextFrom < minAnchorLines * 2) {
+    return null
+  }
+  for (let o = origFrom + 1; o <= origTo - minAnchorLines - 1; o += 1) {
+    const firstLine = prevLines[o]
+    for (let n = nextFrom + 1; n <= nextTo - minAnchorLines - 1; n += 1) {
+      if (nextLines[n] !== firstLine) {
+        continue
+      }
+      let run = 1
+      while (o + run < origTo && n + run < nextTo && prevLines[o + run] === nextLines[n + run]) {
+        run += 1
+      }
+      if (run >= minAnchorLines) {
+        return { origIdx: o, nextIdx: n, len: run }
+      }
+    }
+  }
+  return null
+}
+
+function splitBoundedHunk(
+  prevLines: readonly string[],
+  origStart: number,
+  origEnd: number,
+  nextLines: readonly string[],
+  nextStart: number,
+  nextEnd: number,
+  depth = 0
+): LineHunk[] {
+  let oStart = origStart
+  let nStart = nextStart
+  while (oStart < origEnd && nStart < nextEnd && prevLines[oStart] === nextLines[nStart]) {
+    oStart += 1
+    nStart += 1
+  }
+  let oEnd = origEnd
+  let nEnd = nextEnd
+  while (oEnd > oStart && nEnd > nStart && prevLines[oEnd - 1] === nextLines[nEnd - 1]) {
+    oEnd -= 1
+    nEnd -= 1
+  }
+  if (oStart === oEnd && nStart === nEnd) {
+    return []
+  }
+  if (depth < 3 && Math.max(oEnd - oStart, nEnd - nStart) <= 600) {
+    const anchor = findUnchangedAnchor(prevLines, oStart, oEnd, nextLines, nStart, nEnd)
+    if (anchor) {
+      return [
+        ...splitBoundedHunk(
+          prevLines,
+          oStart,
+          anchor.origIdx,
+          nextLines,
+          nStart,
+          anchor.nextIdx,
+          depth + 1
+        ),
+        ...splitBoundedHunk(
+          prevLines,
+          anchor.origIdx + anchor.len,
+          oEnd,
+          nextLines,
+          anchor.nextIdx + anchor.len,
+          nEnd,
+          depth + 1
+        )
+      ]
+    }
+  }
+  return [{ origStart: oStart, origEnd: oEnd, nextStart: nStart, nextEnd: nEnd }]
+}
+
 function computeChangedLineHunks(
   prevLines: readonly string[],
   nextLines: readonly string[]
 ): LineHunk[] {
-  let prefix = 0
-  while (
-    prefix < prevLines.length &&
-    prefix < nextLines.length &&
-    prevLines[prefix] === nextLines[prefix]
-  ) {
-    prefix++
-  }
-  let suffix = 0
-  while (
-    suffix < prevLines.length - prefix &&
-    suffix < nextLines.length - prefix &&
-    prevLines[prevLines.length - 1 - suffix] === nextLines[nextLines.length - 1 - suffix]
-  ) {
-    suffix++
-  }
-  if (prefix === prevLines.length && prefix === nextLines.length) {
-    return []
-  }
-  return [
-    {
-      origStart: prefix,
-      origEnd: prevLines.length - suffix,
-      nextStart: prefix,
-      nextEnd: nextLines.length - suffix
-    }
-  ]
+  return splitBoundedHunk(prevLines, 0, prevLines.length, nextLines, 0, nextLines.length)
 }

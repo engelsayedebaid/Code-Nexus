@@ -1,10 +1,11 @@
 import path from 'node:path'
 import type { PluginThemeRegistration } from '../../shared/plugins/artifacts/plugin-theme-artifact'
-import type {
-  OpenVsxActiveCapability,
-  OpenVsxInstalledContributionSummary,
-  OpenVsxRuntimeSupport,
-  OpenVsxSnippetItem
+import {
+  toOpenVsxPluginKey,
+  type OpenVsxActiveCapability,
+  type OpenVsxInstalledContributionSummary,
+  type OpenVsxRuntimeSupport,
+  type OpenVsxSnippetItem
 } from '../../shared/openvsx/openvsx-types'
 import {
   classifyUnsupportedCapabilities,
@@ -61,7 +62,7 @@ export async function adaptExtractedVsixExtension(
   if (!pkgRaw) {
     throw new Error('Missing or unreadable extension/package.json inside VSIX')
   }
-  const manifest = parseJsoncObject(pkgRaw) as VsCodePackageManifest | null
+  const manifest: VsCodePackageManifest | null = parseJsoncObject(pkgRaw)
   if (!manifest) {
     throw new Error('Invalid JSON in extension/package.json')
   }
@@ -82,7 +83,7 @@ export async function adaptExtractedVsixExtension(
   const name = typeof manifest.name === 'string' ? manifest.name.trim() : ''
   const publisher = typeof manifest.publisher === 'string' ? manifest.publisher.trim() : ''
   const version = typeof manifest.version === 'string' ? manifest.version.trim() : '0.0.0'
-  const id = publisher && name ? `${publisher}.${name}` : expectedId?.trim() || ''
+  const id = expectedId?.trim() || (publisher && name ? `${publisher}.${name}` : '')
   if (!id || !id.includes('.')) {
     throw new Error('VSIX package.json does not declare valid publisher and name')
   }
@@ -94,7 +95,7 @@ export async function adaptExtractedVsixExtension(
   const categories = extractStringList(manifest.categories)
   const extensionPack = extractExtensionIdList(manifest.extensionPack)
   const dependencies = extractExtensionIdList(manifest.extensionDependencies)
-  const pluginKey = `openvsx:${id}`
+  const pluginKey = toOpenVsxPluginKey(id)
 
   const warnings: string[] = []
   const contributes = manifest.contributes ?? {}
@@ -140,11 +141,21 @@ export async function adaptExtractedVsixExtension(
   const readmeMarkdown = await readLocalReadme(extensionRootDir)
 
   const activeCapabilities: OpenVsxActiveCapability[] = []
-  if (syntaxes.length > 0) activeCapabilities.push('syntax')
-  if (snippets.length > 0) activeCapabilities.push('snippets')
-  if (themes.length > 0) activeCapabilities.push('theme')
-  if (iconThemes.length > 0) activeCapabilities.push('icon-theme')
-  if (extensionPack.length > 0) activeCapabilities.push('extension-pack')
+  if (syntaxes.length > 0) {
+    activeCapabilities.push('syntax')
+  }
+  if (snippets.length > 0) {
+    activeCapabilities.push('snippets')
+  }
+  if (themes.length > 0) {
+    activeCapabilities.push('theme')
+  }
+  if (iconThemes.length > 0) {
+    activeCapabilities.push('icon-theme')
+  }
+  if (extensionPack.length > 0) {
+    activeCapabilities.push('extension-pack')
+  }
 
   const { hasMainEntrypoint, unsupportedCapabilities } = classifyUnsupportedCapabilities(
     manifest,

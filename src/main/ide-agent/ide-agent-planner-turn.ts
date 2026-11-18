@@ -1,11 +1,46 @@
 import { randomUUID } from 'node:crypto'
-import { classifySensitiveFilePath } from '../../shared/ide-agent/ide-plan-policy'
 import type { IdeChatMessage, IdeConversation } from '../../shared/ide-agent/ide-agent-types'
 import { executeApprovedPlanRun } from './ide-agent-plan-execution'
-import { formatPlanIntroMarkdown, parsePlanOrAnswerFromAiOutput } from './ide-agent-prompts'
+import {
+  formatPlanIntroMarkdown,
+  parsePlanOrAnswerFromAiOutput,
+  type RawPlannerTurnResult
+} from './ide-agent-prompts'
 import { buildPlanRecord } from './ide-agent-turn-helpers'
 import type { ActiveRunControl, EngineHostOps } from './ide-agent-runtime-types'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
+
+async function attemptPlannerJsonRepair(params: {
+  host: EngineHostOps
+  run: ActiveRunControl
+  gateway: IdeWorkspaceGateway
+  rawBrokenOutput: string
+  requestText: string
+}): Promise<RawPlannerTurnResult | null> {
+  if (params.run.abortController.signal.aborted) {
+    return null
+  }
+  const repairRes = await params.host.aiClient.complete({
+    workspacePath: params.gateway.target.workspacePath,
+    agentId: params.run.config.agentId,
+    modelId: params.run.config.modelId,
+    signal: params.run.abortController.signal,
+    prompt: [
+      'Convert the draft response below into ONLY a valid JSON object inside ```json ... ```.',
+      'Required fields: "intro", "objective", "affectedFiles" ([{ "path", "action", "summary" }]), "steps" ([{ "title", "detail", "targetFiles" }]), "risks", "testsAndVerification", "estimatedComplexity" ("low"|"medium"|"high").',
+      `Original user request: ${params.requestText.slice(0, 600)}`,
+      `Draft response to convert:\n${params.rawBrokenOutput.slice(0, 6_000)}`
+    ].join('\n\n')
+  })
+  if (!repairRes.ok) {
+    return null
+  }
+  const repaired = parsePlanOrAnswerFromAiOutput(repairRes.text, params.requestText)
+  if (repaired) {
+    params.run.telemetry?.recordRecoveredError()
+  }
+  return repaired
+}
 
 export async function finalizePlannerOutput(params: {
   host: EngineHostOps
@@ -15,9 +50,19 @@ export async function finalizePlannerOutput(params: {
   gateway: IdeWorkspaceGateway
   requestText: string
   aiText: string
+  approvalRequired: boolean
 }): Promise<void> {
-  const { host, activeRuns, conv, run, gateway, requestText, aiText } = params
-  const triage = parsePlanOrAnswerFromAiOutput(aiText, requestText)
+  const { host, activeRuns, conv, run, gateway, requestText, aiText, approvalRequired } = params
+  let triage = parsePlanOrAnswerFromAiOutput(aiText, requestText)
+  if (!triage) {
+    triage = await attemptPlannerJsonRepair({
+      host,
+      run,
+      gateway,
+      rawBrokenOutput: aiText,
+      requestText
+    })
+  }
   if (!triage) {
     throw new Error(
       'Model response did not include a valid structured implementation plan JSON. Try revising or switching models.'
@@ -72,17 +117,7 @@ export async function finalizePlannerOutput(params: {
   conv.activePlanId = plan.id
 
   const shouldAutoExecute =
-    run.config.mode === 'agent' &&
-    parsedPlan.requiresApproval === false &&
-    plan.estimatedComplexity === 'low' &&
-    plan.affectedFiles.length > 0 &&
-    plan.affectedFiles.length <= 2 &&
-    plan.affectedFiles.every(
-      (file) =>
-        file.action !== 'delete' &&
-        file.action !== 'delete_folder' &&
-        classifySensitiveFilePath(file.path, 'write') === null
-    )
+    run.config.mode === 'agent' && !approvalRequired && plan.affectedFiles.length > 0
 
   if (shouldAutoExecute) {
     plan.status = 'approved'
@@ -95,13 +130,13 @@ export async function finalizePlannerOutput(params: {
       decidedAt: Date.now(),
       agentId: run.config.agentId,
       modelId: run.config.modelId,
-      note: 'auto_approved_small_change'
+      note: 'auto_approved_agent_execution'
     }
     host.appendActivity(conv, {
       runId: run.runId,
       role: 'orchestrator',
       type: 'plan.approved',
-      summary: `Auto-approved small scoped edit (${plan.affectedFiles.length} file(s))`,
+      summary: `Agent executing requested change (${plan.affectedFiles.length} file(s))`,
       status: 'completed'
     })
     await executeApprovedPlanRun({

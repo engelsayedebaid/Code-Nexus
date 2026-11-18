@@ -249,7 +249,7 @@ export function closeTerminalTab(tabId: string, options: CloseTerminalTabOptions
   ) {
     // Re-read after closeUnifiedTab repairs/deactivates the surface; stale state must not clobber it.
     const current = useAppStore.getState()
-    if (current.activeWorktreeId === owningWorktreeId) {
+    if (current.activeWorktreeId === owningWorktreeId && current.appMode !== 'ide') {
       // Only unified renderable count includes agent-session/simulator tabs when proving the worktree empty.
       const { renderableTabCount } = current.reconcileWorktreeTabModel(owningWorktreeId)
       if (renderableTabCount === 0 && !hasSplitLandingGroup(current, owningWorktreeId)) {

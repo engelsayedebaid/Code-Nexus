@@ -15,13 +15,18 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/class-names'
 import type { IdeActivityEvent } from '../../../../../shared/ide-agent/ide-agent-types'
+import { formatIdeFileCount } from './ide-chat-copy'
 import { openWorkspaceFileInEditor } from './ide-workspace-navigation'
 
 type TimelineItem =
   | { kind: 'read-group'; id: string; events: IdeActivityEvent[] }
   | { kind: 'single'; id: string; event: IdeActivityEvent }
 
-const HIDDEN_TIMELINE_TYPES = new Set<IdeActivityEvent['type']>(['editor.edit_chunk'])
+const HIDDEN_TIMELINE_TYPES = new Set<IdeActivityEvent['type']>([
+  'editor.edit_chunk',
+  'analysis.started',
+  'analysis.completed'
+])
 
 export function groupIdeActivityEvents(
   events: IdeActivityEvent[],
@@ -61,18 +66,20 @@ function ActivityKindIcon({ event }: { event: IdeActivityEvent }) {
     case 'diagnostics.checked':
       return <Stethoscope className="size-3 shrink-0 text-muted-foreground" />
     case 'folder.created':
-      return <FolderPlus className="size-3 shrink-0 text-primary" />
+      return <FolderPlus className="size-3 shrink-0 text-foreground/80" />
     case 'folder.deleted':
       return <FolderX className="size-3 shrink-0 text-destructive" />
     case 'command.started':
     case 'command.finished':
       return <Terminal className="size-3 shrink-0 text-muted-foreground" />
     case 'live_edit.started':
-      return <Sparkles className="size-3 shrink-0 text-primary" />
+    case 'step.retrying':
+    case 'context.compacted':
+      return <Sparkles className="size-3 shrink-0 text-foreground/80" />
     case 'live_edit.completed':
     case 'step.completed':
     case 'run.completed':
-      return <CheckCircle2 className="size-3 shrink-0 text-emerald-500" />
+      return <CheckCircle2 className="size-3 shrink-0 text-foreground/80" />
     default:
       return <FileCode2 className="size-3 shrink-0 text-muted-foreground" />
   }
@@ -96,7 +103,6 @@ function formatPayloadPreview(event: IdeActivityEvent): string | null {
 export function IdeToolActivityTimeline({
   events,
   maxItems,
-  isArabic = false,
   scratchWorkspace = false,
   compact = false
 }: {
@@ -118,23 +124,18 @@ export function IdeToolActivityTimeline({
   }
 
   return (
-    <div className={cn('space-y-1', compact ? 'text-2xs' : 'text-xs')}>
+    <div dir="ltr" className={cn('space-y-1 text-left', compact ? 'text-2xs' : 'text-xs')}>
       {items.map((item) => {
         if (item.kind === 'read-group') {
           const open = Boolean(expandedIds[item.id])
           const count = item.events.length
-          const label =
-            count === 1
-              ? item.events[0].summary
-              : isArabic
-                ? `تم فحص ${count} ملفات`
-                : `Inspected ${count} files`
+          const label = count === 1 ? item.events[0].summary : `Read ${formatIdeFileCount(count)}`
           return (
-            <div key={item.id} className="rounded-md border border-border/60 bg-muted/20 px-2 py-1">
+            <div key={item.id} className="rounded-md px-1 py-0.5">
               <button
                 type="button"
                 onClick={() => toggle(item.id)}
-                className="flex w-full items-center gap-1.5 text-left text-2xs text-muted-foreground hover:text-foreground"
+                className="flex w-full items-center gap-1.5 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 {open ? (
                   <ChevronDown className="size-3 shrink-0" />
@@ -142,32 +143,27 @@ export function IdeToolActivityTimeline({
                   <ChevronRight className="size-3 shrink-0" />
                 )}
                 <FileCode2 className="size-3 shrink-0" />
-                <span dir="auto" className="min-w-0 flex-1 truncate">
-                  {label}
-                </span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
               </button>
               {open ? (
-                <div className="mt-1 space-y-0.5 border-t border-border/50 pt-1">
+                <div className="mt-1 space-y-0.5 border-l border-border/70 pl-3.5 pt-0.5">
                   {item.events.map((ev) => (
                     <div key={ev.id} className="flex items-center justify-between gap-2 text-3xs">
                       {ev.relativePath ? (
                         <button
                           type="button"
-                          dir="ltr"
                           onClick={() =>
                             openWorkspaceFileInEditor(ev.relativePath!, undefined, scratchWorkspace)
                           }
-                          className="truncate font-mono text-primary hover:underline"
+                          className="truncate font-mono text-foreground/85 hover:underline"
                         >
                           {ev.relativePath}
                         </button>
                       ) : (
-                        <span dir="auto" className="truncate text-muted-foreground">
-                          {ev.summary}
-                        </span>
+                        <span className="truncate text-muted-foreground">{ev.summary}</span>
                       )}
                       {ev.detail ? (
-                        <span dir="ltr" className="shrink-0 font-mono text-muted-foreground">
+                        <span className="shrink-0 font-mono text-muted-foreground">
                           {ev.detail}
                         </span>
                       ) : null}
@@ -187,27 +183,22 @@ export function IdeToolActivityTimeline({
           <div
             key={item.id}
             className={cn(
-              'rounded-md border px-2 py-1',
-              event.status === 'error'
-                ? 'border-destructive/40 bg-destructive/5'
-                : event.status === 'warning'
-                  ? 'border-amber-500/40 bg-amber-500/5'
-                  : 'border-border/60 bg-background/50'
+              'rounded-md px-1 py-0.5',
+              event.status === 'error' && 'border border-destructive/40 bg-destructive/5 py-1'
             )}
           >
             <div className="flex items-center gap-1.5">
               <ActivityKindIcon event={event} />
-              <span dir="auto" className="min-w-0 flex-1 truncate text-2xs text-foreground">
+              <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
                 {event.summary}
               </span>
               {event.relativePath ? (
                 <button
                   type="button"
-                  dir="ltr"
                   onClick={() =>
                     openWorkspaceFileInEditor(event.relativePath!, undefined, scratchWorkspace)
                   }
-                  className="max-w-[140px] shrink-0 truncate font-mono text-3xs text-primary hover:underline"
+                  className="max-w-[140px] shrink-0 truncate font-mono text-3xs text-foreground/85 hover:underline"
                 >
                   {event.relativePath}
                 </button>
@@ -224,10 +215,7 @@ export function IdeToolActivityTimeline({
               ) : null}
             </div>
             {open && payload ? (
-              <pre
-                dir="ltr"
-                className="scrollbar-sleek mt-1 max-h-32 overflow-auto rounded bg-muted/40 p-1.5 font-mono text-3xs whitespace-pre-wrap text-muted-foreground"
-              >
+              <pre className="scrollbar-sleek mt-1 max-h-32 overflow-auto rounded border border-border/50 bg-muted/35 p-1.5 font-mono text-3xs whitespace-pre-wrap text-muted-foreground">
                 {payload}
               </pre>
             ) : null}

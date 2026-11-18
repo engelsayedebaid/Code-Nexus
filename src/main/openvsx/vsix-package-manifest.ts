@@ -3,7 +3,6 @@ import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { parse as parseJsonc } from 'jsonc-parser'
 import { isPlausiblePluginIconSvg } from '../../shared/plugins/artifacts/plugin-icon-theme-artifact'
-import type { OpenVsxUnsupportedCapability } from '../../shared/openvsx/openvsx-types'
 
 const MAX_JSON_FILE_BYTES = 8 * 1024 * 1024
 const MAX_ICON_FILE_BYTES = 512 * 1024
@@ -126,27 +125,43 @@ export async function readBoundedText(
   }
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function parseJsoncObject(raw: string): Record<string, unknown> | null {
   const parsed: unknown = parseJsonc(raw, undefined, { allowTrailingComma: true })
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    return parsed as Record<string, unknown>
+  if (isPlainRecord(parsed)) {
+    return parsed
   }
   return null
 }
 
-export function slugifyContribId(raw: string, fallback: string): string {
-  const cleaned = raw
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return cleaned.length > 0 ? cleaned : fallback
+export function slugifyContribId(raw: string, fallback: string, usedSlugs?: Set<string>): string {
+  const toSlug = (input: string): string =>
+    input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64)
+      .replace(/-+$/g, '')
+  const base = toSlug(raw) || toSlug(fallback) || 'item'
+  if (!usedSlugs) {
+    return base
+  }
+  let candidate = base
+  let suffix = 2
+  while (usedSlugs.has(candidate)) {
+    const suffixText = `-${suffix}`
+    candidate = `${base.slice(0, 64 - suffixText.length).replace(/-+$/g, '')}${suffixText}`
+    suffix += 1
+  }
+  usedSlugs.add(candidate)
+  return candidate
 }
 
-export function resolveNlsString(
-  raw: unknown,
-  nls: Record<string, string> | null
-): string {
+export function resolveNlsString(raw: unknown, nls: Record<string, string> | null): string {
   if (typeof raw !== 'string') {
     return ''
   }
@@ -185,8 +200,8 @@ export function extractRepositoryUrl(raw: unknown): string | undefined {
   let candidate: string | undefined
   if (typeof raw === 'string') {
     candidate = raw.trim()
-  } else if (raw && typeof raw === 'object' && typeof (raw as { url?: unknown }).url === 'string') {
-    candidate = (raw as { url: string }).url.trim()
+  } else if (isPlainRecord(raw) && typeof raw.url === 'string') {
+    candidate = raw.url.trim()
   }
   if (!candidate) {
     return undefined
@@ -260,75 +275,4 @@ export async function readLocalReadme(extensionRootDir: string): Promise<string 
   return undefined
 }
 
-export function classifyUnsupportedCapabilities(
-  manifest: VsCodePackageManifest,
-  description: string
-): { hasMainEntrypoint: boolean; unsupportedCapabilities: OpenVsxUnsupportedCapability[] } {
-  const unsupported = new Set<OpenVsxUnsupportedCapability>()
-  const hasMainEntrypoint =
-    (typeof manifest.main === 'string' && manifest.main.trim().length > 0) ||
-    (typeof manifest.browser === 'string' && manifest.browser.trim().length > 0)
-
-  if (hasMainEntrypoint) {
-    unsupported.add('js-runtime')
-  }
-
-  const contributes = manifest.contributes
-  if (contributes && typeof contributes === 'object') {
-    if (
-      (Array.isArray(contributes.debuggers) && contributes.debuggers.length > 0) ||
-      (Array.isArray(contributes.breakpoints) && contributes.breakpoints.length > 0)
-    ) {
-      unsupported.add('debugger')
-    }
-    if (
-      (contributes.views && Object.keys(contributes.views).length > 0) ||
-      (contributes.viewsContainers && Object.keys(contributes.viewsContainers).length > 0) ||
-      (Array.isArray(contributes.viewsWelcome) && contributes.viewsWelcome.length > 0)
-    ) {
-      unsupported.add('views')
-    }
-    if (Array.isArray(contributes.commands) && contributes.commands.length > 0) {
-      unsupported.add('commands')
-    }
-    if (Array.isArray(contributes.keybindings) && contributes.keybindings.length > 0) {
-      unsupported.add('keybindings')
-    }
-    if (
-      (contributes.menus && Object.keys(contributes.menus).length > 0) ||
-      (contributes.submenus && Object.keys(contributes.submenus).length > 0)
-    ) {
-      unsupported.add('menus')
-    }
-    if (
-      (Array.isArray(contributes.customEditors) && contributes.customEditors.length > 0) ||
-      (Array.isArray(contributes.notebookRenderer) && contributes.notebookRenderer.length > 0)
-    ) {
-      unsupported.add('webviews')
-    }
-  }
-
-  if (hasMainEntrypoint) {
-    const deps =
-      manifest.dependencies && typeof manifest.dependencies === 'object'
-        ? Object.keys(manifest.dependencies)
-        : []
-    const keywords = extractStringList(manifest.keywords).map((k) => k.toLowerCase())
-    const categories = extractStringList(manifest.categories).map((c) => c.toLowerCase())
-    const combinedText = `${description.toLowerCase()} ${keywords.join(' ')}`
-    if (
-      deps.includes('vscode-languageclient') ||
-      categories.includes('programming languages') ||
-      categories.includes('linters') ||
-      categories.includes('formatters') ||
-      /\b(language server|lsp|intellisense|autocomplete|code completion)\b/.test(combinedText)
-    ) {
-      unsupported.add('lsp')
-    }
-  }
-
-  return {
-    hasMainEntrypoint,
-    unsupportedCapabilities: Array.from(unsupported)
-  }
-}
+export { classifyUnsupportedCapabilities } from './vsix-capability-classifier'

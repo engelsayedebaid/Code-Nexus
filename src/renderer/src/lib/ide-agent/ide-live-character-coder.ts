@@ -18,6 +18,7 @@ type ActiveFileStreamSession = {
   worktreePath: string
   relativePath: string
   label: string
+  initialContent: string | null
   frames: CharacterStreamFrame[]
   frameIndex: number
   finalContent: string
@@ -45,6 +46,7 @@ function commitAndFinishSession(session: ActiveFileStreamSession, syncDiskBaseli
   const lastFrame = session.frames.at(-1)
   if (lastFrame) {
     useAppStore.getState().setIdeActiveEditHighlight({
+      worktreeId: session.worktreeId,
       relativePath: session.relativePath,
       startLine: lastFrame.startLine,
       endLine: lastFrame.endLine,
@@ -91,17 +93,29 @@ function tickSession(session: ActiveFileStreamSession, frameIntervalMs: number):
   }
 
   writeTextToMonacoModel(resolved.modelUri, resolved.model, frame.text)
-  useAppStore.getState().setIdeActiveEditHighlight({
-    relativePath: session.relativePath,
-    startLine: frame.startLine,
-    endLine: frame.endLine,
-    cursorLine: frame.cursorLine,
-    cursorColumn: frame.cursorColumn,
-    label: session.label,
-    status: session.sourceKind === 'streamed' ? 'streaming' : 'revealing',
-    progressPercent: frame.progressPercent,
-    updatedAt: Date.now()
-  })
+  const prevHighlight = useAppStore.getState().ideActiveEditHighlight
+  const nextStatus = session.sourceKind === 'streamed' ? 'streaming' : 'revealing'
+  const bucketChanged =
+    !prevHighlight ||
+    prevHighlight.relativePath !== session.relativePath ||
+    prevHighlight.startLine !== frame.startLine ||
+    prevHighlight.endLine !== frame.endLine ||
+    prevHighlight.status !== nextStatus ||
+    Math.floor((prevHighlight.progressPercent ?? 0) / 10) !== Math.floor(frame.progressPercent / 10)
+  if (bucketChanged) {
+    useAppStore.getState().setIdeActiveEditHighlight({
+      worktreeId: session.worktreeId,
+      relativePath: session.relativePath,
+      startLine: frame.startLine,
+      endLine: frame.endLine,
+      cursorLine: frame.cursorLine,
+      cursorColumn: frame.cursorColumn,
+      label: session.label,
+      status: nextStatus,
+      progressPercent: frame.progressPercent,
+      updatedAt: Date.now()
+    })
+  }
 
   session.frameIndex += 1
   if (session.frameIndex >= session.frames.length) {
@@ -155,6 +169,7 @@ export function enqueueLiveCharacterCoding(params: {
 
   if (typeof params.afterContent !== 'string') {
     useAppStore.getState().setIdeActiveEditHighlight({
+      worktreeId: params.worktreeId,
       relativePath: cleanRel,
       startLine: params.startLine,
       endLine: params.endLine,
@@ -172,10 +187,8 @@ export function enqueueLiveCharacterCoding(params: {
   }
 
   const resolvedNow = findTargetMonacoModel(params.worktreeId, cleanRel)
-  const effectiveBefore =
-    params.beforeContent !== undefined
-      ? params.beforeContent
-      : (resolvedNow?.model?.getValue() ?? null)
+  const initialContent = resolvedNow?.model?.getValue() ?? params.beforeContent ?? null
+  const effectiveBefore = params.beforeContent !== undefined ? params.beforeContent : initialContent
 
   const frames = computeCharacterStreamSteps({
     beforeContent: effectiveBefore,
@@ -191,6 +204,7 @@ export function enqueueLiveCharacterCoding(params: {
       worktreePath: params.worktreePath,
       relativePath: cleanRel,
       label: params.label,
+      initialContent,
       frames,
       frameIndex: frames.length,
       finalContent: params.afterContent,
@@ -208,6 +222,7 @@ export function enqueueLiveCharacterCoding(params: {
     worktreePath: params.worktreePath,
     relativePath: cleanRel,
     label: params.label,
+    initialContent,
     frames,
     frameIndex: 0,
     finalContent: params.afterContent,
@@ -227,10 +242,11 @@ export function stopAllLiveCharacterCoding(options?: { cancelled?: boolean }): v
       clearTimeout(session.timerId)
       session.timerId = null
     }
-    if (!options?.cancelled) {
-      const resolved = findTargetMonacoModel(session.worktreeId, session.relativePath)
-      if (resolved && !resolved.isDirty && resolved.model) {
-        writeTextToMonacoModel(resolved.modelUri, resolved.model, session.finalContent)
+    const resolved = findTargetMonacoModel(session.worktreeId, session.relativePath)
+    if (resolved && !resolved.isDirty && resolved.model) {
+      const targetText = options?.cancelled ? session.initialContent : session.finalContent
+      if (targetText !== null) {
+        writeTextToMonacoModel(resolved.modelUri, resolved.model, targetText)
       }
     }
     notifyEditorExternalFileChange({

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { hasArabicText } from '../../shared/ide-agent/ide-language'
 import { normalizeWorkspaceRelativePath } from '../../shared/ide-agent/ide-plan-policy'
 import type {
   IdeCheckpoint,
@@ -16,6 +15,10 @@ import { buildReviewPrompt } from './ide-agent-prompts'
 import type { ActiveRunControl, EngineHostOps } from './ide-agent-runtime-types'
 import type { CoordinatorCallbacks } from './ide-file-edit-coordinator'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
+import {
+  filterNewDiagnosticRegressions,
+  selectPolicyVerificationCommands
+} from './harness/verification-policy'
 
 export async function runPlanVerificationAndReport(params: {
   host: EngineHostOps
@@ -29,6 +32,7 @@ export async function runPlanVerificationAndReport(params: {
   modifiedFilesSet: Set<string>
   verificationCommands: Set<string>
   completedSummaries: readonly string[]
+  baselineDiagnosticErrors?: ReadonlySet<string>
 }): Promise<void> {
   const {
     host,
@@ -46,9 +50,23 @@ export async function runPlanVerificationAndReport(params: {
 
   const executedCmdIds: string[] = []
   const failedChecks: string[] = []
-  const runnableCommands = Array.from(verificationCommands).filter((cmd) =>
+  const explicitRunnable = Array.from(verificationCommands).filter((cmd) =>
     looksLikeExecutableCommand(cmd)
   )
+
+  let runnableCommands = explicitRunnable
+  if (
+    runnableCommands.length === 0 &&
+    modifiedFilesSet.size > 0 &&
+    !run.abortController.signal.aborted
+  ) {
+    const snap = await gateway.inspectWorkspace([], run.abortController.signal).catch(() => null)
+    runnableCommands = selectPolicyVerificationCommands({
+      explicitCommands: explicitRunnable,
+      modifiedFiles: modifiedFilesSet,
+      architecture: snap?.architecture
+    })
+  }
 
   if (runnableCommands.length > 0) {
     host.setRunStatus(conv, run.runId, 'verifying', 'Running verification checks...')
@@ -62,8 +80,13 @@ export async function runPlanVerificationAndReport(params: {
       }
       if (cmdRecord?.status === 'failed') {
         let fixed = false
+        let latestFailed = cmdRecord
+        const seenFailureSignatures = new Set<string>()
         for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS && !fixed; attempt += 1) {
-          fixed = await attemptTestFailureRepair({
+          if (run.abortController.signal.aborted) {
+            break
+          }
+          const repairOut = await attemptTestFailureRepair({
             host,
             callbacks,
             conv,
@@ -72,10 +95,13 @@ export async function runPlanVerificationAndReport(params: {
             baselineShaByFile,
             run,
             gateway,
-            failedCommand: cmdRecord,
+            failedCommand: latestFailed,
             modifiedFilesSet,
-            executedCmdIds
+            executedCmdIds,
+            seenFailureSignatures
           })
+          fixed = repairOut.fixed
+          latestFailed = repairOut.latestRecord
         }
         if (!fixed) {
           failedChecks.push(command)
@@ -90,16 +116,27 @@ export async function runPlanVerificationAndReport(params: {
     host.setRunStatus(conv, run.runId, 'verifying', 'Checking project diagnostics...')
     const diag = await gateway.getDiagnostics(run.abortController.signal)
     if (diag.available) {
+      const regressionAnalysis = filterNewDiagnosticRegressions(
+        params.baselineDiagnosticErrors ?? new Set(),
+        diag.details
+      )
+      const regressionFailed = !diag.passed && regressionAnalysis.newErrors.length > 0
+      const summary = diag.passed
+        ? diag.summary
+        : regressionFailed
+          ? `${diag.summary} (${regressionAnalysis.newErrors.length} new regression(s))`
+          : `No new TypeScript regressions introduced (${regressionAnalysis.preExistingCount} pre-existing error(s) unchanged).`
       host.appendActivity(conv, {
         runId: run.runId,
         role: 'orchestrator',
         type: 'diagnostics.checked',
-        summary: diag.summary,
+        summary,
         detail: diag.details || undefined,
-        status: diag.passed ? 'completed' : 'error'
+        status: regressionFailed ? 'error' : 'completed'
       })
-      if (!diag.passed) {
-        failedChecks.push(diag.summary)
+      run.telemetry?.recordVerificationOutcome(!regressionFailed)
+      if (regressionFailed) {
+        failedChecks.push(summary)
       }
     }
   }
@@ -114,7 +151,8 @@ export async function runPlanVerificationAndReport(params: {
       status: 'running'
     })
     const diffSummary = await gateway.getGitDiffSummary()
-    const snapshot = await gateway.inspectWorkspace()
+    const snapshot = await gateway.inspectWorkspace([], run.abortController.signal)
+    run.telemetry?.recordSubagentRun(1)
     const revRes = await host.aiClient.complete({
       workspacePath: gateway.target.workspacePath,
       agentId: run.config.agentId,
@@ -147,18 +185,28 @@ export async function runPlanVerificationAndReport(params: {
     }
   }
 
+  if (run.abortController.signal.aborted) {
+    plan.status = 'failed'
+    plan.updatedAt = Date.now()
+    host.setRunStatus(conv, null, 'canceled', 'Stopped by user')
+    return
+  }
+
   const plannedPaths = plan.affectedFiles
     .filter((f) => f.action !== 'mkdir' && f.action !== 'delete_folder')
     .map((f) => normalizeWorkspaceRelativePath(f.path))
-  const arabicPlan = hasArabicText(`${plan.requestSummary ?? ''}\n${plan.objective}`)
   const expectedFileChanges =
     plannedPaths.length > 0 || plan.steps.some((s) => s.targetFiles.length > 0)
   const unmodifiedPlannedFiles = plannedPaths.filter((p) => !modifiedFilesSet.has(p))
+  const bulletSummaries =
+    completedSummaries.length > 0
+      ? completedSummaries.map((s) => `- ${s.replace(/^\s*\d+[.)]\s*/, '')}`).join('\n')
+      : ''
 
   if (
     expectedFileChanges &&
     modifiedFilesSet.size === 0 &&
-    plan.affectedFiles.every((f) => f.action !== 'mkdir')
+    plan.affectedFiles.every((f) => f.action !== 'mkdir' && f.action !== 'delete_folder')
   ) {
     plan.status = 'failed'
     plan.updatedAt = Date.now()
@@ -168,13 +216,9 @@ export async function runPlanVerificationAndReport(params: {
       role: 'assistant',
       mode: 'agent',
       text: [
-        arabicPlan
-          ? `### لم يكتمل التنفيذ: ${plan.objective}`
-          : `### Implementation Incomplete: ${plan.objective}`,
-        arabicPlan
-          ? '**لم تُطبّق أي تغييرات على الملفات.** أنهى الوكيل الخطوات دون إنشاء أو تعديل ملفات ضمن النطاق المعتمد.'
-          : '**No file changes were applied.** The agent finished its steps without writing or modifying any files in the approved scope.',
-        completedSummaries.length > 0 ? completedSummaries.map((s) => `- ${s}`).join('\n') : ''
+        `### Implementation Incomplete: ${plan.objective}`,
+        '**No file changes were applied.** The agent finished its steps without writing or modifying any files in the approved scope.',
+        bulletSummaries
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -209,19 +253,13 @@ export async function runPlanVerificationAndReport(params: {
     mode: 'agent',
     text: [
       hasFailures
-        ? arabicPlan
-          ? `### نُفّذت التعديلات مع فشل في التحقق\n${plan.objective}`
-          : `### Changes Applied (Verification Failed)\n${plan.objective}`
-        : arabicPlan
-          ? `### تم تنفيذ التغييرات\n${plan.objective}`
-          : `### Changes Applied\n${plan.objective}`,
-      completedSummaries.length > 0 ? completedSummaries.map((s) => `- ${s}`).join('\n') : '',
+        ? `### Changes Applied (Verification Failed)\n${plan.objective}`
+        : `### Changes Applied\n${plan.objective}`,
+      bulletSummaries,
       unmodifiedPlannedFiles.length > 0
-        ? `**${arabicPlan ? 'ملاحظة — ملفات مخططة لم تتغير' : 'Note — planned files unchanged'}:** ${unmodifiedPlannedFiles.map((f) => `\`${f}\``).join('، ')}`
+        ? `**Note — planned files unchanged:** ${unmodifiedPlannedFiles.map((f) => `\`${f}\``).join(', ')}`
         : '',
-      hasFailures
-        ? `**${arabicPlan ? 'فحوصات لم تنجح' : 'Failed checks'}:** ${failedChecks.map((c) => `\`${c}\``).join(', ')}`
-        : '',
+      hasFailures ? `**Failed checks:** ${failedChecks.map((c) => `\`${c}\``).join(', ')}` : '',
       reviewerReport
     ]
       .filter(Boolean)

@@ -29,7 +29,6 @@ import {
 } from './ide-bottom-terminal-layout'
 
 const IDE_BOTTOM_TERMINAL_SPLIT_RATIO = 0.68
-
 const runnerTabIdByWorktreeAndShell = new Map<string, string>()
 
 function normalizeShellCategory(shell: string | undefined): string {
@@ -51,10 +50,7 @@ function normalizeShellCategory(shell: string | undefined): string {
   if (leaf === WINDOWS_GIT_BASH_SHELL || leaf === 'bash.exe') {
     return WINDOWS_GIT_BASH_SHELL
   }
-  if (leaf === 'wsl.exe' || leaf === 'wsl') {
-    return 'wsl'
-  }
-  return leaf
+  return leaf === 'wsl.exe' || leaf === 'wsl' ? 'wsl' : leaf
 }
 
 function resolveRequestedShellOverride(
@@ -132,6 +128,42 @@ function isTabStarting(state: AppState, tabId: string): boolean {
   )
 }
 
+function waitForTabPtyId(
+  worktreeId: string,
+  tabId: string,
+  timeoutMs = 5000
+): Promise<string | null> {
+  const immediate = resolveTabPtyId(useAppStore.getState(), worktreeId, tabId)
+  if (immediate) {
+    return Promise.resolve(immediate)
+  }
+  return new Promise((resolve) => {
+    let settled = false
+    let unsubscribe: (() => void) | null = null
+    const finish = (ptyId: string | null): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      unsubscribe?.()
+      resolve(ptyId)
+    }
+    const timer = setTimeout(
+      () => finish(resolveTabPtyId(useAppStore.getState(), worktreeId, tabId)),
+      timeoutMs
+    )
+    unsubscribe = useAppStore.subscribe((next) => {
+      const found = resolveTabPtyId(next, worktreeId, tabId)
+      if (found) {
+        finish(found)
+      } else if (!(next.tabsByWorktree[worktreeId] ?? []).some((t) => t.id === tabId)) {
+        finish(null)
+      }
+    })
+  })
+}
+
 export type IdeRunContext = {
   isRemote: boolean
   isWsl: boolean
@@ -148,7 +180,10 @@ function toWslRunPath(filePath: string): string {
     : executionPath
 }
 
-/** Resolve host type, shell dialect, and path mapping for an IDE run on `fileId` in `worktreeId`. */
+function toHostPlatform(raw: string | null | undefined): NodeJS.Platform | null {
+  return raw === 'win32' || raw === 'darwin' || raw === 'linux' ? raw : null
+}
+
 export function resolveIdeRunContext(
   worktreeId: string,
   fileId: string,
@@ -166,15 +201,12 @@ export function resolveIdeRunContext(
   const remoteConnectionId = getRemoteConnectionIdForWorktree(state, worktreeId)
   const isRemote = Boolean(remoteConnectionId)
   const isWslRun = worktreeUsesWslPath(state, worktreeId) || requestedCategory === 'wsl'
-  const remotePlatform = remoteConnectionId
-    ? ((state.sshConnectionStates.get(remoteConnectionId)
-        ?.remotePlatform as NodeJS.Platform | null) ?? null)
-    : null
-
   if (isWslRun) {
     return { isRemote, isWsl: true, shell: 'posix', shellOverride, resolvePath: toWslRunPath }
   }
-
+  const remotePlatform = remoteConnectionId
+    ? toHostPlatform(state.sshConnectionStates.get(remoteConnectionId)?.remotePlatform)
+    : null
   const reusedTabShell =
     target.kind === 'reuse-tab'
       ? (state.tabsByWorktree[worktreeId] ?? []).find((entry) => entry.id === target.tab.entityId)
@@ -223,8 +255,7 @@ function createBottomRunnerTab(args: {
     label,
     command
   } = args
-  const store = useAppStore.getState()
-  const created = store.createTab(worktreeId, targetGroupId, shellOverride, {
+  const created = useAppStore.getState().createTab(worktreeId, targetGroupId, shellOverride, {
     quickCommandLabel: label,
     pendingStartup: { command },
     ...(splitDown
@@ -234,7 +265,7 @@ function createBottomRunnerTab(args: {
   const nextState = useAppStore.getState()
   if (splitDown) {
     const bottomGroupId = nextState.unifiedTabsByWorktree[worktreeId]?.find(
-      (entry) => entry.id === created.id
+      (entry) => entry.id === created.id || entry.entityId === created.id
     )?.groupId
     const layout = nextState.layoutByWorktree[worktreeId]
     const splitPath =
@@ -256,7 +287,6 @@ function createBottomRunnerTab(args: {
   return { tabId: created.id }
 }
 
-/** Run `command` in a bottom terminal pane below the active editor, reusing it across runs. */
 export async function runIdeCommandInBottomTerminal({
   worktreeId,
   fileId,
@@ -284,8 +314,12 @@ export async function runIdeCommandInBottomTerminal({
   if (target.kind === 'reuse-tab') {
     state.activateTab(target.tab.id, { worktreeId })
     state.setActiveTabType('terminal', worktreeId)
-    focusTerminalTabSurface(target.tab.id)
-    const ptyId = resolveTabPtyId(state, worktreeId, target.tab.entityId)
+    focusTerminalTabSurface(target.tab.entityId)
+    const ptyId =
+      resolveTabPtyId(state, worktreeId, target.tab.entityId) ??
+      (isTabStarting(state, target.tab.entityId)
+        ? await waitForTabPtyId(worktreeId, target.tab.entityId)
+        : null)
     if (ptyId) {
       try {
         if (await sendRuntimePtyInputVerified(ptyId, `${command}\r`, 'driving')) {
@@ -295,10 +329,6 @@ export async function runIdeCommandInBottomTerminal({
       } catch {
         // Dead or disconnected PTY: fall through to spawn a fresh runner tab in the bottom pane.
       }
-    } else if (isTabStarting(state, target.tab.entityId)) {
-      state.queueTabStartupCommand(target.tab.entityId, { command })
-      runnerTabIdByWorktreeAndShell.set(cacheKey, target.tab.id)
-      return { tabId: target.tab.id }
     }
   }
 

@@ -5,21 +5,15 @@ import {
 } from '../../shared/ide-agent/ide-plan-policy'
 import type { IdeCheckpoint } from '../../shared/ide-agent/ide-agent-types'
 import { AgentLoopGuard, MAX_EXECUTION_TOOL_TURNS } from './ide-agent-loop-guard'
-import { runExecutionStepWithLiveStream } from './ide-agent-harness'
-import {
-  buildExecutionStepPrompt,
-  parseStepOperationsFromAiOutput,
-  parseToolCallsFromAiOutput
-} from './ide-agent-prompts'
-import { executeAgentReadOnlyTool } from './ide-agent-tools'
+import { executeSinglePlanStep } from './ide-agent-step-runner'
 import { runPlanVerificationAndReport } from './ide-agent-verification'
 import { IdeContextBudgetTracker } from './ide-context-budget'
-import {
-  applyCoordinatedFileOperation,
-  type CoordinatorCallbacks
-} from './ide-file-edit-coordinator'
+import type { CoordinatorCallbacks } from './ide-file-edit-coordinator'
 import type { ActiveRunControl, EngineHostOps } from './ide-agent-runtime-types'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
+import { resolveModelExecutionProfile } from './harness/model-capability-registry'
+import { extractDiagnosticErrorSignatures } from './harness/verification-policy'
+import { loadTrustedWorkspaceInstructions } from './harness/workspace-instructions-loader'
 
 function makeCoordinatorCallbacks(
   host: EngineHostOps,
@@ -55,11 +49,18 @@ export async function executeApprovedPlanRun(params: {
     throw new Error(gateCheck.reason)
   }
 
+  const profile = resolveModelExecutionProfile({
+    agentId: run.config.agentId,
+    modelId: run.config.modelId,
+    taskKind: 'step',
+    complexity: plan.estimatedComplexity
+  })
+
   const checkpoint: IdeCheckpoint = {
     id: randomUUID(),
     conversationId: conv.id,
     runId: run.runId,
-    label: `Before Plan v${plan.version}: ${plan.objective.slice(0, 48)}`,
+    label: `Before changes: ${plan.objective.slice(0, 48)}`,
     createdAt: Date.now(),
     files: []
   }
@@ -69,16 +70,38 @@ export async function executeApprovedPlanRun(params: {
   try {
     plan.status = 'executing'
     plan.updatedAt = Date.now()
-    host.setRunStatus(conv, run.runId, 'executing', 'Starting approved implementation...')
+    host.setRunStatus(conv, run.runId, 'executing', 'Starting implementation...')
+
+    const shouldProbeBaselineDiag =
+      plan.testsAndVerification.length === 0 && Boolean(gateway.getDiagnostics)
+    const [instructions, baselineDiag] = await Promise.all([
+      loadTrustedWorkspaceInstructions({
+        gateway,
+        maxRulesChars: profile.allocation.projectRulesTokens * 4,
+        signal: run.abortController.signal
+      }),
+      shouldProbeBaselineDiag && gateway.getDiagnostics
+        ? gateway.getDiagnostics(run.abortController.signal).catch(() => null)
+        : Promise.resolve(null)
+    ])
+    const baselineDiagnosticErrors =
+      baselineDiag && baselineDiag.available && !baselineDiag.passed
+        ? extractDiagnosticErrorSignatures(baselineDiag.details)
+        : new Set<string>()
 
     for (const item of plan.affectedFiles) {
       if (item.action === 'mkdir' || item.action === 'delete_folder') {
         continue
       }
-      const normalized = normalizeWorkspaceRelativePath(item.path)
+      const normalized = normalizeWorkspaceRelativePath(
+        item.action === 'rename' && item.fromPath ? item.fromPath : item.path
+      )
       const readRes = await gateway.readTextFile(normalized, { allowSecretRead: false })
-      const content = readRes.ok ? readRes.content : null
-      baselineShaByFile.set(normalized, readRes.ok ? readRes.sha256 : null)
+      if (!readRes.ok) {
+        continue
+      }
+      const content = readRes.content
+      baselineShaByFile.set(normalized, readRes.sha256)
       checkpoint.files.push({
         relativePath: normalized,
         existedBefore: content !== null,
@@ -99,15 +122,19 @@ export async function executeApprovedPlanRun(params: {
     const completedSummaries: string[] = []
     const modifiedFilesSet = new Set<string>()
     const verificationCommands = new Set<string>(plan.testsAndVerification)
-    const stepBudget = new IdeContextBudgetTracker()
-    const writeGuard = new AgentLoopGuard(MAX_EXECUTION_TOOL_TURNS * Math.max(1, plan.steps.length))
+    const stepBudget = new IdeContextBudgetTracker({
+      budgetTokens: profile.allocation.totalContextTokens
+    })
+    const writeGuard = new AgentLoopGuard(
+      (MAX_EXECUTION_TOOL_TURNS + 2) * Math.max(1, plan.steps.length)
+    )
 
     if (run.config.multiAgentEnabled) {
       host.appendActivity(conv, {
         runId: run.runId,
         role: 'coder',
         type: 'agent.role_started',
-        summary: 'Coder Agent applying approved steps',
+        summary: 'Coder Agent applying requested changes',
         status: 'running'
       })
     }
@@ -129,138 +156,29 @@ export async function executeApprovedPlanRun(params: {
         status: 'running'
       })
 
-      const contextPaths = Array.from(
-        new Set(
-          [...step.targetFiles, ...plan.affectedFiles.map((f) => f.path)].map(
-            normalizeWorkspaceRelativePath
-          )
-        )
-      ).slice(0, 12)
-
-      const currentFiles: { relativePath: string; content: string | null }[] = []
-      for (const relPath of contextPaths) {
-        const readRes = await gateway.readTextFile(relPath)
-        currentFiles.push({
-          relativePath: relPath,
-          content: readRes.ok ? readRes.content : null
-        })
-      }
-
-      const stepGuard = new AgentLoopGuard(MAX_EXECUTION_TOOL_TURNS)
-      const stepObservations: string[] = []
-      let stepOutput = null as ReturnType<typeof parseStepOperationsFromAiOutput>
-      let streamedPaths = new Set<string>()
-
-      while (true) {
-        const turnCheck = stepGuard.nextTurn()
-        if (!turnCheck.allowed) {
-          step.status = 'failed'
-          throw new Error(turnCheck.reason)
-        }
-
-        const stepResult = await runExecutionStepWithLiveStream({
-          host,
-          conv,
-          run,
-          gateway,
-          plan,
-          prompt: buildExecutionStepPrompt({
-            plan,
-            step,
-            currentFiles,
-            completedSummaries,
-            roleLabel: run.config.multiAgentEnabled ? 'Carver Coder Agent' : 'Carver Agent',
-            toolObservations: stepObservations
-          })
-        })
-        const aiRes = stepResult.aiRes
-        streamedPaths = stepResult.streamedPaths
-
-        if (!aiRes.ok) {
-          step.status = 'failed'
-          if (aiRes.canceled || run.abortController.signal.aborted) {
-            host.setRunStatus(conv, null, 'canceled')
-            return
-          }
-          throw new Error(aiRes.error)
-        }
-
-        const toolCalls = parseToolCallsFromAiOutput(aiRes.text)
-        if (toolCalls && turnCheck.turn < MAX_EXECUTION_TOOL_TURNS) {
-          for (const call of toolCalls.slice(0, 5)) {
-            const obs = await executeAgentReadOnlyTool({
-              call,
-              mode: 'plan',
-              gateway,
-              budget: stepBudget,
-              signal: run.abortController.signal
-            })
-            stepObservations.push(`[${obs.tool}] (${obs.ok ? 'ok' : 'error'}): ${obs.output}`)
-            host.appendActivity(conv, {
-              runId: run.runId,
-              role: run.config.multiAgentEnabled ? 'coder' : 'orchestrator',
-              type: obs.activityType,
-              summary: obs.summary,
-              relativePath: obs.relativePath,
-              status: obs.ok ? 'completed' : 'warning'
-            })
-          }
-          continue
-        }
-
-        stepOutput = parseStepOperationsFromAiOutput(aiRes.text)
-        if (!stepOutput) {
-          step.status = 'failed'
-          throw new Error(
-            `Model returned invalid structured JSON for step "${step.title}". Switch models or retry.`
-          )
-        }
-        break
-      }
-
-      for (const cmd of stepOutput.verificationCommands) {
-        verificationCommands.add(cmd)
-      }
-
-      for (const op of stepOutput.operations) {
-        if (!(await host.waitIfPausedOrAborted(conv, run))) {
-          plan.status = 'failed'
-          host.setRunStatus(conv, null, 'canceled')
-          return
-        }
-        const rewriteCheck = writeGuard.checkFileRewrite(op.path)
-        if (!rewriteCheck.allowed) {
-          throw new Error(rewriteCheck.reason)
-        }
-        await applyCoordinatedFileOperation(
-          {
-            conv,
-            plan,
-            checkpoint,
-            baselineShaByFile,
-            runId: run.runId,
-            mode: run.config.mode,
-            multiAgentEnabled: run.config.multiAgentEnabled,
-            liveEditSpeed: run.config.liveEditSpeed,
-            dirtyPaths: run.dirtyPaths,
-            gateway,
-            op,
-            modifiedFilesSet,
-            alreadyStreamedPaths: streamedPaths
-          },
-          callbacks
-        )
-      }
-
-      step.status = 'completed'
-      completedSummaries.push(`${step.title}: ${stepOutput.summary}`)
-      host.appendActivity(conv, {
-        runId: run.runId,
-        role: run.config.multiAgentEnabled ? 'coder' : 'orchestrator',
-        type: 'step.completed',
-        summary: stepOutput.summary,
-        status: 'completed'
+      const outcome = await executeSinglePlanStep({
+        host,
+        conv,
+        plan,
+        step,
+        checkpoint,
+        baselineShaByFile,
+        run,
+        gateway,
+        callbacks,
+        stepBudget,
+        writeGuard,
+        completedSummaries,
+        modifiedFilesSet,
+        verificationCommands,
+        profile,
+        instructions
       })
+      if (outcome === 'canceled') {
+        plan.status = 'failed'
+        host.setRunStatus(conv, null, 'canceled')
+        return
+      }
     }
 
     if (run.config.multiAgentEnabled) {
@@ -284,9 +202,14 @@ export async function executeApprovedPlanRun(params: {
       gateway,
       modifiedFilesSet,
       verificationCommands,
-      completedSummaries
+      completedSummaries,
+      baselineDiagnosticErrors
     })
   } finally {
+    if (run.telemetry) {
+      run.telemetry.finalizeIntoConversation(conv)
+      host.saveAndPublish(conv)
+    }
     if (activeRuns.get(conversationId) === run) {
       activeRuns.delete(conversationId)
     }

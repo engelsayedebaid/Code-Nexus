@@ -17,6 +17,7 @@ import type { IdeContextBudgetTracker } from './ide-context-budget'
 import type { ActiveRunControl, EngineHostOps } from './ide-agent-runtime-types'
 import { StreamingOperationContentExtractor } from './ide-streaming-op-extractor'
 import type { IdeWorkspaceGateway } from './ide-workspace-gateway'
+import type { ResolvedModelExecutionProfile } from './harness/model-capability-registry'
 
 export async function runToolAssistedInspectionLoop(params: {
   host: EngineHostOps
@@ -24,14 +25,17 @@ export async function runToolAssistedInspectionLoop(params: {
   run: ActiveRunControl
   gateway: IdeWorkspaceGateway
   budget: IdeContextBudgetTracker
+  profile?: ResolvedModelExecutionProfile
   mode: IdeExecutionMode
   role: IdeAgentRole
-  buildPrompt: (observations: readonly string[]) => string
+  buildPrompt: (observations: readonly string[], allowTools: boolean) => string
   onProseDelta?: (text: string) => void
+  onTurnReset?: () => void
 }): Promise<IdeAiCompletionResponse> {
-  const { host, conv, run, gateway, budget } = params
+  const { host, conv, run, gateway, budget, profile } = params
   const guard = new AgentLoopGuard(MAX_READ_TOOL_TURNS)
   const observations: string[] = []
+  const maxBatch = profile?.maxParallelTools ?? 6
 
   while (true) {
     if (run.abortController.signal.aborted) {
@@ -41,25 +45,43 @@ export async function runToolAssistedInspectionLoop(params: {
     if (!turnCheck.allowed) {
       return { ok: false, error: turnCheck.reason }
     }
+    const allowTools = turnCheck.turn < MAX_READ_TOOL_TURNS
+    if (turnCheck.turn > 1) {
+      params.onTurnReset?.()
+    }
 
     let bufferedDelta = ''
     let confirmedProse = false
+    let suppressedAsToolJson = false
     const aiRes = await host.aiClient.complete({
       workspacePath: gateway.target.workspacePath,
       agentId: run.config.agentId,
       modelId: run.config.modelId,
-      prompt: params.buildPrompt(observations),
+      prompt: params.buildPrompt(observations, allowTools),
+      thinkingLevel: profile?.selectedThinkingLevel,
       signal: run.abortController.signal,
       onDelta: params.onProseDelta
         ? (delta) => {
+            if (suppressedAsToolJson) {
+              return
+            }
             if (confirmedProse) {
               params.onProseDelta!(delta)
               return
             }
             bufferedDelta += delta
             const trimmed = bufferedDelta.trimStart()
-            // Avoid flashing raw toolCalls JSON in chat while probing tools.
-            if (trimmed.length > 0 && !trimmed.startsWith('{') && !trimmed.startsWith('```')) {
+            if (!trimmed) {
+              return
+            }
+            if (
+              trimmed.startsWith('{"toolCalls"') ||
+              /^```(?:json)?\s*\{\s*"(?:toolCalls|responseType)"/.test(trimmed)
+            ) {
+              suppressedAsToolJson = true
+              return
+            }
+            if (trimmed.length >= 28 || (!trimmed.startsWith('{') && !trimmed.startsWith('```'))) {
               confirmedProse = true
               params.onProseDelta!(bufferedDelta)
               bufferedDelta = ''
@@ -72,22 +94,24 @@ export async function runToolAssistedInspectionLoop(params: {
       return aiRes
     }
 
-    const toolCalls = parseToolCallsFromAiOutput(aiRes.text)
-    if (!toolCalls || turnCheck.turn >= MAX_READ_TOOL_TURNS) {
+    const toolCalls = allowTools ? parseToolCallsFromAiOutput(aiRes.text) : null
+    if (!toolCalls) {
       conv.contextBudget = budget.summary()
       host.saveAndPublish(conv)
       return aiRes
     }
 
-    for (const call of toolCalls.slice(0, 6)) {
+    for (const call of toolCalls.slice(0, maxBatch)) {
       if (run.abortController.signal.aborted) {
         return { ok: false, error: 'Canceled by user.', canceled: true }
       }
       const allowed = guard.checkToolCall(call.tool, call.args)
       if (!allowed.allowed) {
+        run.telemetry?.recordToolCall(true)
         observations.push(`[Tool guard] ${allowed.reason}`)
         continue
       }
+      run.telemetry?.recordToolCall(false)
       const obs = await executeAgentReadOnlyTool({
         call,
         mode: params.mode,
@@ -122,6 +146,7 @@ export async function runExecutionStepWithLiveStream(params: {
   gateway: IdeWorkspaceGateway
   plan: IdeTaskPlan
   prompt: string
+  thinkingLevel?: string
 }): Promise<{ aiRes: IdeAiCompletionResponse; streamedPaths: Set<string> }> {
   const { host, conv, run, gateway, plan } = params
   const extractor = new StreamingOperationContentExtractor()
@@ -133,6 +158,7 @@ export async function runExecutionStepWithLiveStream(params: {
     agentId: run.config.agentId,
     modelId: run.config.modelId,
     prompt: params.prompt,
+    thinkingLevel: params.thinkingLevel,
     signal: run.abortController.signal,
     onDelta: (delta) => {
       if (run.abortController.signal.aborted || run.paused) {

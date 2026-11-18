@@ -1,4 +1,3 @@
-import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import SyncDatabase from '../sqlite/sync-database'
 import { getCanonicalUserDataPath } from '../persistence/loading-store/user-data-path'
@@ -13,14 +12,19 @@ const ACTIVE_TRANSIENT_STATUSES = new Set<IdeRunStatus>([
   'analyzing',
   'planning',
   'executing',
-  'verifying'
+  'verifying',
+  'paused',
+  'awaiting_permission'
 ])
 
 function normalizeRestoredConversation(raw: IdeConversation): IdeConversation {
   let changed = false
   let status = raw.status
   if (ACTIVE_TRANSIENT_STATUSES.has(status)) {
-    status = raw.activePlanId ? 'paused' : 'canceled'
+    const awaitingPlan = raw.plans.find(
+      (p) => p.id === raw.activePlanId && p.status === 'awaiting_approval'
+    )
+    status = awaitingPlan ? 'awaiting_approval' : 'canceled'
     changed = true
   }
   const messages = raw.messages.map((msg) => {
@@ -29,6 +33,27 @@ function normalizeRestoredConversation(raw: IdeConversation): IdeConversation {
     }
     changed = true
     return { ...msg, streaming: false }
+  })
+  const plans = raw.plans.map((plan) => {
+    const hasInProgressStep = plan.steps.some((step) => step.status === 'in_progress')
+    if (plan.status !== 'executing' && !hasInProgressStep) {
+      return plan
+    }
+    changed = true
+    return {
+      ...plan,
+      status: plan.status === 'executing' ? ('failed' as const) : plan.status,
+      steps: plan.steps.map((step) =>
+        step.status === 'in_progress' ? { ...step, status: 'failed' as const } : step
+      )
+    }
+  })
+  const pendingPermissions = (raw.pendingPermissions ?? []).map((perm) => {
+    if (perm.status !== 'pending') {
+      return perm
+    }
+    changed = true
+    return { ...perm, status: 'denied' as const, resolvedAt: raw.updatedAt }
   })
   const commandExecutions = raw.commandExecutions.map((cmd) => {
     if (cmd.status !== 'running') {
@@ -47,8 +72,10 @@ function normalizeRestoredConversation(raw: IdeConversation): IdeConversation {
   return {
     ...raw,
     status,
-    activeRunId: status === 'canceled' ? null : raw.activeRunId,
+    activeRunId: null,
     messages,
+    plans,
+    pendingPermissions,
     commandExecutions
   }
 }
@@ -59,12 +86,8 @@ export class IdeAgentStore {
 
   constructor(databasePath?: string) {
     const resolvedPath = databasePath ?? join(getCanonicalUserDataPath(), 'ide-agent.sqlite')
-    if (resolvedPath !== ':memory:') {
-      mkdirSync(dirname(resolvedPath), { recursive: true })
-      this.attachmentsRootDir = join(dirname(resolvedPath), 'ide-agent-attachments')
-    } else {
-      this.attachmentsRootDir = null
-    }
+    this.attachmentsRootDir =
+      resolvedPath !== ':memory:' ? join(dirname(resolvedPath), 'ide-agent-attachments') : null
     this.db = new SyncDatabase(resolvedPath, { timeout: 5000 })
     this.db.pragma('journal_mode = WAL')
     this.db.exec(`
@@ -83,6 +106,24 @@ export class IdeAgentStore {
         items_json TEXT NOT NULL
       );
     `)
+    this.recoverInterruptedSessions()
+  }
+
+  private recoverInterruptedSessions(): void {
+    const rows = this.db.prepare(`SELECT id FROM ide_conversations`).all()
+    for (const row of rows) {
+      if (typeof row !== 'object' || row === null || !('id' in row) || typeof row.id !== 'string') {
+        continue
+      }
+      const parsed = this.getConversation(row.id)
+      if (!parsed) {
+        continue
+      }
+      const normalized = normalizeRestoredConversation(parsed)
+      if (normalized !== parsed) {
+        this.saveConversation(normalized)
+      }
+    }
   }
 
   listConversationSummaries(workspaceKey: string): IdeConversationSummary[] {
@@ -94,9 +135,7 @@ export class IdeAgentStore {
     const summaries: IdeConversationSummary[] = []
     for (const row of rows) {
       try {
-        const parsed = normalizeRestoredConversation(
-          JSON.parse(row.payload_json) as IdeConversation
-        )
+        const parsed = JSON.parse(row.payload_json) as IdeConversation
         summaries.push({
           id: parsed.id,
           workspaceKey: parsed.workspaceKey,
@@ -124,8 +163,7 @@ export class IdeAgentStore {
       return null
     }
     try {
-      const parsed = JSON.parse(row.payload_json) as IdeConversation
-      return normalizeRestoredConversation(parsed)
+      return JSON.parse(row.payload_json) as IdeConversation
     } catch {
       return null
     }

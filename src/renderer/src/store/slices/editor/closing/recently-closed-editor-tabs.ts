@@ -166,6 +166,7 @@ export function createRecentlyClosedEditorTabs(
           const closedFileIds = new Set(closingFiles.map((f) => f.id))
           const closedTabOrderIds = new Set([...closedFileIds, ...closingItemIds])
           const shouldDeactivateWorktree =
+            s.appMode !== 'ide' &&
             browserTabsForWorktree.length === 0 &&
             terminalTabsForWorktree.length === 0 &&
             !unifiedTabsKeepWorktreeSelected(

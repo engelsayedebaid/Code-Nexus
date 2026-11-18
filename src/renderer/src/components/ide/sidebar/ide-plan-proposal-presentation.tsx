@@ -20,7 +20,7 @@ import type {
 
 export function planStatusMeta(
   status: IdeTaskPlan['status'],
-  arabic = false
+  _arabic = false
 ): {
   label: string
   className: string
@@ -28,42 +28,42 @@ export function planStatusMeta(
   switch (status) {
     case 'awaiting_approval':
       return {
-        label: arabic ? 'بانتظار الموافقة' : 'Awaiting Approval',
-        className: 'border-amber-500/40 bg-amber-500/10 text-amber-500'
+        label: 'Awaiting Approval',
+        className: 'border-border bg-secondary text-secondary-foreground'
       }
     case 'approved':
       return {
-        label: arabic ? 'معتمدة' : 'Approved',
-        className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+        label: 'Approved',
+        className: 'border-border bg-muted/60 text-foreground'
       }
     case 'executing':
       return {
-        label: arabic ? 'قيد التنفيذ' : 'Executing',
-        className: 'border-sky-500/40 bg-sky-500/10 text-sky-500'
+        label: 'Executing',
+        className: 'border-border bg-accent text-foreground'
       }
     case 'completed':
       return {
-        label: arabic ? 'مكتملة' : 'Completed',
-        className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+        label: 'Completed',
+        className: 'border-border bg-muted/60 text-foreground'
       }
     case 'rejected':
       return {
-        label: arabic ? 'مرفوضة' : 'Rejected',
+        label: 'Rejected',
         className: 'border-destructive/40 bg-destructive/10 text-destructive'
       }
     case 'failed':
       return {
-        label: arabic ? 'فشل التنفيذ' : 'Failed',
+        label: 'Failed',
         className: 'border-destructive/40 bg-destructive/10 text-destructive'
       }
     case 'superseded':
       return {
-        label: arabic ? 'مُحدّثة' : 'Superseded',
+        label: 'Superseded',
         className: 'border-border bg-muted/50 text-muted-foreground'
       }
     default:
       return {
-        label: arabic ? 'مسودة' : 'Draft',
+        label: 'Draft',
         className: 'border-border bg-muted/40 text-muted-foreground'
       }
   }
@@ -72,13 +72,13 @@ export function planStatusMeta(
 export function stepStatusIcon(status: IdePlanStep['status']): React.JSX.Element {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+      return <CheckCircle2 className="size-3.5 shrink-0 text-foreground" />
     case 'in_progress':
-      return <Loader2 className="size-3.5 shrink-0 animate-spin text-sky-500" />
+      return <Loader2 className="size-3.5 shrink-0 animate-spin text-foreground" />
     case 'failed':
       return <XCircle className="size-3.5 shrink-0 text-destructive" />
     case 'blocked':
-      return <AlertCircle className="size-3.5 shrink-0 text-amber-500" />
+      return <AlertCircle className="size-3.5 shrink-0 text-muted-foreground" />
     case 'skipped':
       return <Clock className="size-3.5 shrink-0 text-muted-foreground" />
     default:
@@ -88,19 +88,39 @@ export function stepStatusIcon(status: IdePlanStep['status']): React.JSX.Element
 
 export function fileActionIcon(action: IdePlanFileAction['action']): React.JSX.Element {
   if (action === 'create') {
-    return <FilePlus2 className="size-3 shrink-0 text-emerald-500" />
+    return (
+      <FilePlus2
+        className="size-3 shrink-0"
+        style={{ color: 'var(--git-decoration-added, currentColor)' }}
+      />
+    )
   }
   if (action === 'delete') {
     return <FileMinus2 className="size-3 shrink-0 text-destructive" />
   }
   if (action === 'mkdir') {
-    return <FolderPlus className="size-3 shrink-0 text-emerald-500" />
+    return (
+      <FolderPlus
+        className="size-3 shrink-0"
+        style={{ color: 'var(--git-decoration-added, currentColor)' }}
+      />
+    )
   }
   if (action === 'delete_folder') {
     return <FolderMinus className="size-3 shrink-0 text-destructive" />
   }
   if (action === 'rename') {
-    return <FileInput className="size-3 shrink-0 text-amber-500" />
+    return (
+      <FileInput
+        className="size-3 shrink-0"
+        style={{ color: 'var(--git-decoration-renamed, currentColor)' }}
+      />
+    )
   }
-  return <FileCode2 className="size-3 shrink-0 text-sky-500" />
+  return (
+    <FileCode2
+      className="size-3 shrink-0"
+      style={{ color: 'var(--git-decoration-modified, currentColor)' }}
+    />
+  )
 }

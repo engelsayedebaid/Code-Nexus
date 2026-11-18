@@ -1,6 +1,10 @@
-import { existsSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runWorkspaceShellCommand, type IdeWorkspaceTarget } from './ide-workspace-shell'
+import {
+  runWorkspaceShellCommand,
+  type IdeWorkspaceTarget,
+  type WorkspaceCommandRunResult
+} from './ide-workspace-shell'
 
 export type WorkspaceDiagnosticResult = {
   available: boolean
@@ -11,40 +15,55 @@ export type WorkspaceDiagnosticResult = {
   details: string
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await stat(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function probeWorkspaceDiagnostics(
   target: IdeWorkspaceTarget,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  runCommand?: (
+    command: string,
+    options: { timeoutMs?: number; signal?: AbortSignal }
+  ) => Promise<WorkspaceCommandRunResult>
 ): Promise<WorkspaceDiagnosticResult> {
-  const hasTsconfig = existsSync(join(target.workspacePath, 'tsconfig.json'))
-  const hasPkgJson = existsSync(join(target.workspacePath, 'package.json'))
-  if (!hasTsconfig && !hasPkgJson) {
+  const hasTsconfig = await pathExists(join(target.workspacePath, 'tsconfig.json'))
+  if (!hasTsconfig) {
     return {
       available: false,
       tool: 'none',
       passed: true,
       errorCount: 0,
-      summary: 'No TypeScript or package diagnostics configured.',
+      summary: 'No tsconfig.json configured for static diagnostics.',
       details: ''
     }
   }
+
   const hasLocalTsc =
-    existsSync(join(target.workspacePath, 'node_modules', '.bin', 'tsc')) ||
-    existsSync(join(target.workspacePath, 'node_modules', '.bin', 'tsc.cmd'))
-  if (!hasTsconfig || !hasLocalTsc) {
+    (await pathExists(join(target.workspacePath, 'node_modules', '.bin', 'tsc'))) ||
+    (await pathExists(join(target.workspacePath, 'node_modules', '.bin', 'tsc.cmd')))
+  if (!hasLocalTsc) {
     return {
       available: false,
       tool: 'typescript',
       passed: true,
       errorCount: 0,
-      summary: hasTsconfig
-        ? 'tsconfig.json found, but local tsc binary is not installed in node_modules.'
-        : 'No tsconfig.json found for static TypeScript diagnostics.',
+      summary: 'tsconfig.json found, but local tsc binary is not installed in node_modules.',
       details: ''
     }
   }
-  const cmd = 'npx --no-install tsc --noEmit --pretty false'
-  const res = await runWorkspaceShellCommand(target, cmd, {
-    timeoutMs: 30_000,
+
+  const execute =
+    runCommand ??
+    ((command: string, options: { timeoutMs?: number; signal?: AbortSignal }) =>
+      runWorkspaceShellCommand(target, command, options))
+  const res = await execute('npx --no-install tsc --noEmit --pretty false', {
+    timeoutMs: 35_000,
     signal
   })
   const combined = [res.stdout, res.stderr].filter(Boolean).join('\n').trim()

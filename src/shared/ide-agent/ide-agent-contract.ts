@@ -134,6 +134,7 @@ export const IdeAgentSendPromptParams = z.strictObject({
   liveEditSpeed: z.enum(['natural', 'fast', 'instant']).optional(),
   attachments: z.array(IdeChatAttachmentSchema).max(24).optional(),
   activeFilePath: z.string().max(4096).optional(),
+  openFilePaths: z.array(z.string().max(4096)).max(32).optional(),
   dirtyRelativePaths: z.array(z.string().max(4096)).max(256).optional()
 })
 
@@ -160,7 +161,7 @@ export const IdeAgentPermissionDecisionParams = z.strictObject({
 
 export const IdeAgentRunControlParams = z.strictObject({
   conversationId: z.string().min(1).max(256),
-  runId: z.string().min(1).max(256),
+  runId: z.string().min(1).max(256).optional(),
   worktreeSelector: z.string().min(1).max(4096).optional(),
   action: z.enum(['pause', 'resume', 'stop', 'retry']),
   dirtyRelativePaths: z.array(z.string().max(4096)).max(256).optional()

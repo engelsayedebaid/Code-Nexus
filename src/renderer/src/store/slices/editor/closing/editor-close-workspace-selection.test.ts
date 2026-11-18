@@ -102,4 +102,49 @@ describe('editor close mixed tab history', () => {
     expect(state.groupsByWorktree['wt-1'][0].activeTabId).toBe(first.id)
     expect(state.unifiedTabsByWorktree['wt-1'].map((tab) => tab.id)).toEqual([first.id, second.id])
   })
+
+  it.each(closeActions)(
+    '%s keeps the workspace selected in IDE mode when all tabs close',
+    async (action) => {
+      const store = createEditorTabsStore()
+      store.setState({ appMode: 'ide', activeWorktreeId: 'wt-ide' })
+      const main = await drawTabsFromMain(store)
+      const fileId = openMarkdown(store, 'wt-ide')
+      await main.settle()
+
+      if (action === 'closeFile') {
+        store.getState().closeFile(fileId)
+      } else {
+        store.getState().closeAllFiles()
+      }
+      await main.settle()
+      main.close()
+
+      const state = store.getState()
+      expect(state.activeWorktreeId).toBe('wt-ide')
+      expect(state.openFiles).toEqual([])
+      expect(state.unifiedTabsByWorktree['wt-ide'] ?? []).toEqual([])
+    }
+  )
+
+  it.each(closeActions)('%s keeps the workspace selected in IDE mode when all tabs close', async (action) => {
+    const store = createEditorTabsStore()
+    store.setState({ appMode: 'ide', activeWorktreeId: 'wt-ide' })
+    const main = await drawTabsFromMain(store)
+    const fileId = openMarkdown(store, 'wt-ide')
+    await main.settle()
+
+    if (action === 'closeFile') {
+      store.getState().closeFile(fileId)
+    } else {
+      store.getState().closeAllFiles()
+    }
+    await main.settle()
+    main.close()
+
+    const state = store.getState()
+    expect(state.activeWorktreeId).toBe('wt-ide')
+    expect(state.openFiles).toEqual([])
+    expect(state.unifiedTabsByWorktree['wt-ide'] ?? []).toEqual([])
+  })
 })

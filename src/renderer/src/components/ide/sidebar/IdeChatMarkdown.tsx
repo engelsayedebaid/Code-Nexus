@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react'
 import CommentMarkdown, {
-  type CommentMarkdownLinkClickHandler
+  type CommentMarkdownLinkClickHandler,
+  type MarkdownDirectionOverride
 } from '@/components/sidebar/CommentMarkdown'
 import { NativeChatCodeBlock } from '@/components/native-chat/markdown/code/NativeChatCodeBlock'
 import type { DocumentCodeBlockRenderer } from '@/components/sidebar/comment-markdown-element-renderers'
@@ -10,6 +11,7 @@ import {
   resolveActiveWorkspaceLinkTarget
 } from './ide-workspace-navigation'
 import '../../native-chat/markdown/native-chat-markdown.css'
+import './ide-chat-markdown.css'
 
 const IdeCodeBlockRenderer: DocumentCodeBlockRenderer = ({ language, sourceLine, children }) => (
   <NativeChatCodeBlock language={language} sourceLine={sourceLine}>
@@ -20,10 +22,12 @@ const IdeCodeBlockRenderer: DocumentCodeBlockRenderer = ({ language, sourceLine,
 export const IdeChatMarkdown = React.memo(function IdeChatMarkdown({
   content,
   streaming = false,
+  directionOverride,
   className
 }: {
   content: string
   streaming?: boolean
+  directionOverride?: MarkdownDirectionOverride
   className?: string
 }) {
   const handleLinkClick = useCallback<CommentMarkdownLinkClickHandler>((event, href) => {
@@ -50,11 +54,15 @@ export const IdeChatMarkdown = React.memo(function IdeChatMarkdown({
       growing={streaming}
       unknownHtmlAsText
       allowFileUriLinks
+      directionOverride={directionOverride}
       onLinkClick={handleLinkClick}
       renderCodeBlock={IdeCodeBlockRenderer}
       renderMermaid={!streaming}
       keepMermaidSourceWhilePending
-      className={cn('native-chat-markdown text-xs leading-relaxed', className)}
+      className={cn(
+        'native-chat-markdown orca-ide-chat-markdown min-w-0 text-sm leading-7 text-foreground/90',
+        className
+      )}
     />
   )
 })

@@ -240,7 +240,7 @@ describe('IdeAgentEngine agent harness', () => {
     await engine.sendPrompt({
       conversationId: conv.id,
       worktreeSelector: dir,
-      text: 'Create an auth folder, create a token helper, patch it, and rename it to authToken.ts with tests',
+      text: 'Make a plan to create an auth folder, create a token helper, patch it, and rename it to authToken.ts with tests',
       mode: 'agent'
     })
 

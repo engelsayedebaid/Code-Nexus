@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AppIcon } from '@/components/icons/app-icon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,10 +10,12 @@ import type { IdeConversation, IdeTodoItem } from '../../../../../shared/ide-age
 
 export function IdeSimpleTodoPanel({
   workspaceKey,
-  conversation
+  conversation,
+  syncRevision = 0
 }: {
   workspaceKey: string | null
   conversation: IdeConversation | null
+  syncRevision?: number
 }) {
   const pluginPanels = usePluginPanels()
   const todoPlugin = useMemo(
@@ -32,6 +34,12 @@ export function IdeSimpleTodoPanel({
   const [newText, setNewText] = useState('')
   const todosByWorkspace = useIdeAgentStore((s) => s.todosByWorkspace)
   const saveTodos = useIdeAgentStore((s) => s.saveTodos)
+
+  useEffect(() => {
+    if (syncRevision > 0) {
+      setSourceMode('workspace')
+    }
+  }, [syncRevision])
 
   const todos: IdeTodoItem[] = workspaceKey ? (todosByWorkspace[workspaceKey] ?? []) : []
   const activePlan = conversation?.plans.find((p) => p.id === conversation.activePlanId) ?? null
@@ -86,7 +94,7 @@ export function IdeSimpleTodoPanel({
       .map((step) => ({
         id: `todo-${step.id}-${now}`,
         workspaceKey,
-        text: `${step.index}. ${step.title}`,
+        text: `${step.index + 1}. ${step.title}`,
         done: step.status === 'completed',
         linkedPlanId: activePlan.id,
         linkedStepId: step.id,
@@ -95,14 +103,14 @@ export function IdeSimpleTodoPanel({
       }))
     if (imported.length > 0) {
       persist([...todos, ...imported])
-      setSourceMode('workspace')
     }
+    setSourceMode('workspace')
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {todoPlugin ? (
-        <div className="flex items-center justify-between gap-2 border-b border-border/70 px-2.5 py-1.5 text-[11px]">
+        <div className="flex items-center justify-between gap-2 border-b border-border/70 px-2.5 py-1.5 text-2xs">
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -133,11 +141,10 @@ export function IdeSimpleTodoPanel({
             <Button
               size="xs"
               variant="ghost"
-              className="h-6 px-1.5 text-[10px]"
               onClick={handleImportPlanSteps}
               title="Import active plan steps"
             >
-              <AppIcon name="addTask" className="mr-1 size-3" />
+              <AppIcon name="addTask" className="size-3" />
               Import Plan
             </Button>
           ) : null}
@@ -152,6 +159,8 @@ export function IdeSimpleTodoPanel({
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center gap-1.5 border-b border-border/70 p-2.5">
             <Input
+              dir="auto"
+              density="compact"
               value={newText}
               onChange={(e) => setNewText(e.target.value)}
               onKeyDown={(e) => {
@@ -162,11 +171,9 @@ export function IdeSimpleTodoPanel({
               }}
               placeholder={workspaceKey ? 'Add a todo item...' : 'Open a workspace first...'}
               disabled={!workspaceKey}
-              className="h-7 text-xs"
             />
             <Button
-              size="sm"
-              className="h-7 px-2 text-xs"
+              size="icon-xs"
               disabled={!workspaceKey || !newText.trim()}
               onClick={handleAdd}
               aria-label="Add todo"
@@ -175,9 +182,8 @@ export function IdeSimpleTodoPanel({
             </Button>
             {!todoPlugin && activePlan ? (
               <Button
-                size="sm"
+                size="icon-xs"
                 variant="outline"
-                className="h-7 px-2 text-[11px]"
                 onClick={handleImportPlanSteps}
                 title="Import steps from active implementation plan"
               >
@@ -206,6 +212,7 @@ export function IdeSimpleTodoPanel({
                       className="size-3.5 rounded border-border accent-primary"
                     />
                     <span
+                      dir="auto"
                       className={cn(
                         'truncate',
                         item.done ? 'line-through text-muted-foreground' : 'text-foreground'
@@ -228,8 +235,8 @@ export function IdeSimpleTodoPanel({
           </div>
 
           {todos.some((t) => t.done) ? (
-            <div className="flex items-center justify-between border-t border-border/70 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-              <span>
+            <div className="flex items-center justify-between border-t border-border/70 px-2.5 py-1.5 text-2xs text-muted-foreground">
+              <span className="tabular-nums">
                 {todos.filter((t) => t.done).length}/{todos.length} done
               </span>
               <button

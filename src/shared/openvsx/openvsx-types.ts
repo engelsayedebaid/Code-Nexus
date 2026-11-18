@@ -147,3 +147,44 @@ export type OpenVsxInstallOutcome = {
   skipped: string[]
   primaryExtension?: OpenVsxInstalledExtension
 }
+
+function toSafePluginIdSegment(raw: string, fallback: string, maxLength = 64): string {
+  const cleaned = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength)
+    .replace(/-+$/g, '')
+  return cleaned.length > 0 ? cleaned : fallback
+}
+
+/** Canonical Orca pluginKey (`ovsx-<publisher>.<name>`) valid for all theme/icon/syntax settings schemas. */
+export function toOpenVsxPluginKey(extensionId: string): string {
+  const trimmed = extensionId.trim()
+  const dotIndex = trimmed.indexOf('.')
+  const rawNamespace = dotIndex > 0 ? trimmed.slice(0, dotIndex) : 'ext'
+  const rawName = dotIndex > 0 ? trimmed.slice(dotIndex + 1) : trimmed
+  const publisherSlug = toSafePluginIdSegment(`ovsx-${rawNamespace}`, 'ovsx-ext', 64)
+  const nameSlug = toSafePluginIdSegment(rawName, 'extension', 64)
+  return `${publisherSlug}.${nameSlug}`
+}
+
+/** Formats IPC/network errors from Open VSX into clean user-facing English messages. */
+export function formatOpenVsxErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? '')
+  const stripped = raw
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^(?:TypeError|Error):\s*/i, '')
+    .trim()
+  if (
+    !stripped ||
+    /^fetch failed$/i.test(stripped) ||
+    /failed to fetch|ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(
+      stripped
+    )
+  ) {
+    return 'Unable to reach Open VSX marketplace. Check your internet connection and click Refresh.'
+  }
+  return stripped
+}

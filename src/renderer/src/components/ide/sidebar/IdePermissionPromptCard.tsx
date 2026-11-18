@@ -34,31 +34,38 @@ export function IdePermissionPromptCard({
   return (
     <div
       data-testid="ide-permission-card"
-      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-2"
+      className="space-y-2 rounded-lg border border-border bg-card p-3 text-xs shadow-xs"
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5 font-medium text-amber-500">
-          <AppIcon name="warning" size="xs" />
-          <span>{permission.title}</span>
+        <div className="flex items-center gap-1.5 font-medium text-foreground">
+          <AppIcon name="security" size="xs" className="text-muted-foreground" />
+          <span dir="auto">{permission.title}</span>
         </div>
-        <Badge variant="outline" className="border-amber-500/30 text-[10px] text-amber-500">
-          {permission.kind}
-        </Badge>
+        <Badge variant="referenceLabel">{permission.kind}</Badge>
       </div>
-      <p className="text-muted-foreground leading-relaxed">{permission.detail}</p>
+      <p dir="auto" className="leading-relaxed text-muted-foreground">
+        {permission.detail}
+      </p>
       {permission.targetPath ? (
-        <div className="rounded bg-background/80 px-2 py-1 font-mono text-[11px] text-foreground break-all">
+        <div
+          dir="ltr"
+          className="break-all rounded border border-border/60 bg-muted/40 px-2 py-1 font-mono text-2xs text-foreground"
+        >
           {permission.targetPath}
         </div>
       ) : null}
       {permission.command ? (
-        <pre className="scrollbar-sleek overflow-x-auto rounded bg-background/80 px-2 py-1 font-mono text-[11px] text-foreground">
+        <pre
+          dir="ltr"
+          className="scrollbar-sleek overflow-x-auto rounded border border-border/60 bg-muted/40 px-2 py-1 font-mono text-2xs text-foreground"
+        >
           {permission.command}
         </pre>
       ) : null}
       {permission.status === 'pending' ? (
         <div className="space-y-2 pt-1">
           <Textarea
+            dir="auto"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Optional note or guidance..."
@@ -72,7 +79,7 @@ export function IdePermissionPromptCard({
               disabled={busy}
               onClick={() => void handleDecision('approve')}
             >
-              <AppIcon name="confirm" className="mr-1 size-3" />
+              <AppIcon name="confirm" className="size-3" />
               Approve once
             </Button>
             <Button
@@ -82,13 +89,13 @@ export function IdePermissionPromptCard({
               disabled={busy}
               onClick={() => void handleDecision('deny')}
             >
-              <AppIcon name="close" className="mr-1 size-3" />
+              <AppIcon name="close" className="size-3" />
               Deny
             </Button>
           </div>
         </div>
       ) : (
-        <div className="text-[11px] font-medium text-muted-foreground">
+        <div className="text-2xs font-medium text-muted-foreground">
           Permission {permission.status}
           {permission.note ? ` · ${permission.note}` : ''}
         </div>

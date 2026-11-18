@@ -17,8 +17,11 @@ type DirectRunnerSpec = {
 }
 
 const DIRECT_RUNNERS: Readonly<Record<string, DirectRunnerSpec>> = {
-  javascript: { candidates: ['node'], buildArgs: (exe, file) => [exe, file] },
-  typescript: { candidates: ['npx'], buildArgs: (exe, file) => [exe, '--no-install', 'tsx', file] },
+  javascript: { candidates: ['node', 'bun'], buildArgs: (exe, file) => [exe, file] },
+  typescript: {
+    candidates: ['tsx', 'bun', 'npx'],
+    buildArgs: (exe, file) => (exe === 'npx' ? ['npx', '--yes', 'tsx', file] : [exe, file])
+  },
   ruby: { candidates: ['ruby'], buildArgs: (exe, file) => [exe, file] },
   php: { candidates: ['php'], buildArgs: (exe, file) => [exe, file] },
   go: { candidates: ['go'], buildArgs: (exe, file) => [exe, 'run', file] },
@@ -110,12 +113,59 @@ function formatTargetPathForShell(filePath: string, shell: AgentStartupShell): s
   return shell === 'posix' ? filePath.replaceAll('\\', '/') : filePath.replaceAll('/', '\\')
 }
 
+const NON_RUNNABLE_EXTENSIONS = new Set([
+  '.h',
+  '.hpp',
+  '.hh',
+  '.hxx',
+  '.cuh',
+  '.hrl',
+  '.gradle',
+  '.jenkinsfile',
+  '.just',
+  '.nimble'
+])
+
+const NON_RUNNABLE_BASENAMES = new Set([
+  'justfile',
+  '.justfile',
+  'jenkinsfile',
+  '.bashrc',
+  '.bash_profile',
+  '.bash_login',
+  '.bash_logout',
+  '.profile',
+  '.zshrc',
+  '.zshenv',
+  '.zprofile',
+  '.zlogin',
+  '.zlogout',
+  '.envrc'
+])
+
+function isNonRunnableSourceFile(filePath: string): boolean {
+  const leaf = getRuntimePathBasename(filePath).toLowerCase()
+  if (NON_RUNNABLE_BASENAMES.has(leaf) || leaf.startsWith('jenkinsfile.')) {
+    return true
+  }
+  const dot = leaf.lastIndexOf('.')
+  return dot > 0 && NON_RUNNABLE_EXTENSIONS.has(leaf.slice(dot))
+}
+
+function quoteRunnerArg(arg: string, shell: AgentStartupShell): string {
+  if (shell === 'cmd') {
+    // cmd does not strip carets inside double quotes; escape % for cmd and " for C runtime argv.
+    return `"${arg.replaceAll('%', '%%').replaceAll('"', '\\"')}"`
+  }
+  return quoteStartupArg(arg, shell)
+}
+
 function formatDirectCommand(args: readonly string[], shell: AgentStartupShell): string {
   const [executable, ...rest] = args
   if (!executable) {
     return ''
   }
-  const quotedArgs = rest.map((arg) => quoteStartupArg(arg, shell))
+  const quotedArgs = rest.map((arg) => quoteRunnerArg(arg, shell))
   return quotedArgs.length > 0 ? `${executable} ${quotedArgs.join(' ')}` : executable
 }
 
@@ -136,8 +186,8 @@ function compiledCommandSpec(
     `${stem}.orca-run${windowsTarget ? '.exe' : ''}`,
     useBackslash
   )
-  const quotedFile = quoteStartupArg(execFilePath, shell)
-  const quotedOut = quoteStartupArg(outputPath, shell)
+  const quotedFile = quoteRunnerArg(execFilePath, shell)
+  const quotedOut = quoteRunnerArg(outputPath, shell)
   return {
     candidates,
     buildCommand: (compiler) => {
@@ -155,6 +205,9 @@ export function getIdeFileRunnerSpec(
   language: string,
   shell: AgentStartupShell = defaultShellForPath(filePath)
 ): IdeFileRunnerSpec | null {
+  if (isNonRunnableSourceFile(filePath)) {
+    return null
+  }
   const execFilePath = formatTargetPathForShell(filePath, shell)
   if (language === 'python') {
     const candidates = isWindowsAbsolutePathLike(filePath)
@@ -169,10 +222,22 @@ export function getIdeFileRunnerSpec(
     if (shell === 'posix') {
       return null
     }
-    const quotedFile = quoteStartupArg(execFilePath, shell)
+    const quotedFile = quoteRunnerArg(execFilePath, shell)
     return {
       candidates: [],
       buildCommand: () => (shell === 'powershell' ? `& ${quotedFile}` : quotedFile)
+    }
+  }
+  if (language === 'html') {
+    const quotedFile = quoteRunnerArg(execFilePath, shell)
+    return {
+      candidates: [],
+      buildCommand: () =>
+        shell === 'powershell'
+          ? `Start-Process -FilePath ${quotedFile}`
+          : shell === 'cmd'
+            ? `start "" ${quotedFile}`
+            : `(command -v open >/dev/null 2>&1 && open ${quotedFile} || xdg-open ${quotedFile})`
     }
   }
   const direct = DIRECT_RUNNERS[language]
